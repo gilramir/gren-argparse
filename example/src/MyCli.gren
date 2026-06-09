@@ -19,7 +19,10 @@ parser =
             |> Cli.Parser.withCommand
                 { word = "greet"
                 , arguments =
-                    Cli.Parser.oneArg nameParser
+                    Cli.Parser.oneArg
+                        { value = nameParser
+                        , help = "Who to greet"
+                        }
                 , flags =
                     Cli.Parser.initFlags (\loud -> { loud = loud })
                         |> Cli.Parser.toggle "loud" "Shout the greeting"

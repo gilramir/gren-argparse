@@ -11,6 +11,7 @@ module Cli.Parser exposing
     , Command
     --
     , ValueParser
+    , Arg
     --
     , ArgumentParser
     , ArgumentParserError(..)
@@ -57,7 +58,7 @@ Into a data structure.
 
 ## Arguments
 
-@docs ValueParser, ArgumentParser, ArgumentParserError, argumentErrorPrettified, noArgs, oneArg, twoArgs, threeArgs, zeroOrMoreArgs, mapArgs, oneOfArgs
+@docs ValueParser, Arg, ArgumentParser, ArgumentParserError, argumentErrorPrettified, noArgs, oneArg, twoArgs, threeArgs, zeroOrMoreArgs, mapArgs, oneOfArgs
 
 ## Flags
 
@@ -471,11 +472,35 @@ runCommand appName rawTokens spec =
 commandHelpText : String -> Command args flags result -> PP.Document
 commandHelpText appName spec =
     let
-        (ArgumentParser { description = argumentType }) =
+        (ArgumentParser { usage = argumentType, positionals }) =
             spec.arguments
-        
+
         (FlagParser { knownFlags }) =
             spec.flags
+
+        argDocument =
+            positionals
+                |> Array.mapAndFlatten
+                    (\positional ->
+                        [ PP.text ("<" ++ positional.name ++ ">")
+                            |> PP.color PP.Cyan
+                        , PP.words positional.description
+                            |> PP.indent
+                        , PP.empty
+                        ]
+                    )
+                |> PP.verticalBlock
+                |> PP.indent
+
+        argumentsSection =
+            if Array.any (\p -> p.description /= "") positionals then
+                [ PP.words "Arguments:"
+                , PP.empty
+                , argDocument
+                ]
+
+            else
+                []
 
         flagDocument =
             Dict.foldl
@@ -502,7 +527,7 @@ commandHelpText appName spec =
                 |> PP.verticalBlock
                 |> PP.indent
     in
-    PP.verticalBlock
+    PP.verticalBlock <|
         [ PP.words spec.summary
         , PP.empty
         , PP.words (appName ++ " " ++ spec.word ++ " " ++ argumentType)
@@ -511,10 +536,12 @@ commandHelpText appName spec =
         , PP.empty
         , spec.example
         , PP.empty
-        , PP.words "You can customize this command with the following flags:"
-        , PP.empty
-        , flagDocument
         ]
+            ++ argumentsSection
+            ++ [ PP.words "You can customize this command with the following flags:"
+               , PP.empty
+               , flagDocument
+               ]
 
 
 -- ARGS
@@ -525,7 +552,8 @@ is a way of converting an arbitrary number of `String` inputs into Gren values.
 -}
 type ArgumentParser val
     = ArgumentParser
-        { description : String
+        { usage : String
+        , positionals : Array PositionalHelp
         , parseFn : Array String -> Result ArgumentParserError val
         }
 
@@ -538,6 +566,34 @@ type alias ValueParser val =
     , plural : String
     , fn : (String -> Maybe val)
     , examples : Array String
+    }
+
+
+{-| A single positional argument: a [ValueParser](#ValueParser) plus a `help`
+string describing what the argument means. The help is shown, per argument, in
+the command's `--help` output.
+-}
+type alias Arg val =
+    { value : ValueParser val
+    , help : String
+    }
+
+
+{-| Per-positional metadata retained so command help can describe each argument.
+Internal; built from the [Arg](#Arg)s given to the argument combinators.
+-}
+type alias PositionalHelp =
+    { name : String
+    , description : String
+    , examples : Array String
+    }
+
+
+positionalFromArg : Arg val -> PositionalHelp
+positionalFromArg arg =
+    { name = arg.value.singular
+    , description = arg.help
+    , examples = arg.value.examples
     }
 
 
@@ -594,8 +650,9 @@ arguments were provided.
 -}
 noArgs : ArgumentParser {}
 noArgs =
-    ArgumentParser 
-        { description = ""
+    ArgumentParser
+        { usage = ""
+        , positionals = []
         , parseFn = \args ->
             if Array.length args /= 0 then
                 Err <| ArgumentParserWrongArity { expected = 0, actual = Array.length args }
@@ -607,21 +664,22 @@ noArgs =
 
 {-| Parses exactly one argument.
 -}
-oneArg : ValueParser val -> ArgumentParser val
-oneArg parseFn =
+oneArg : Arg val -> ArgumentParser val
+oneArg arg =
     ArgumentParser
-        { description = "<" ++ parseFn.singular ++ ">"
+        { usage = "<" ++ arg.value.singular ++ ">"
+        , positionals = [ positionalFromArg arg ]
         , parseFn = \args ->
             when args is
-                [ arg ] ->
-                    parseFn.fn arg
+                [ value ] ->
+                    arg.value.fn value
                         |> Maybe.map Ok
-                        |> Maybe.withDefault 
-                            (Err <| 
+                        |> Maybe.withDefault
+                            (Err <|
                                 ArgumentParserInvalidArgument
-                                    { argument = arg
-                                    , title = parseFn.singular
-                                    , examples = parseFn.examples
+                                    { argument = value
+                                    , title = arg.value.singular
+                                    , examples = arg.value.examples
                                     }
                             )
 
@@ -632,29 +690,30 @@ oneArg parseFn =
 
 {-| Parses exactly two arguments.
 -}
-twoArgs : (a -> b -> c) -> ValueParser a -> ValueParser b -> ArgumentParser c
-twoArgs combine firstValue secondValue =
-    ArgumentParser 
-        { description = "<" ++ firstValue.singular ++ "> <" ++ secondValue.singular ++ ">"
+twoArgs : (a -> b -> c) -> Arg a -> Arg b -> ArgumentParser c
+twoArgs combine firstArg secondArg =
+    ArgumentParser
+        { usage = "<" ++ firstArg.value.singular ++ "> <" ++ secondArg.value.singular ++ ">"
+        , positionals = [ positionalFromArg firstArg, positionalFromArg secondArg ]
         , parseFn = \args ->
             when args is
                 [ first, second ] ->
-                    when { first = firstValue.fn first, second = secondValue.fn second } is
+                    when { first = firstArg.value.fn first, second = secondArg.value.fn second } is
                         { first = Just firstOk, second = Just secondOk } ->
                             Ok <| combine firstOk secondOk
 
                         { first = Nothing } ->
                             Err <| ArgumentParserInvalidArgument
                                 { argument = first
-                                , title = firstValue.singular
-                                , examples = firstValue.examples
+                                , title = firstArg.value.singular
+                                , examples = firstArg.value.examples
                                 }
-                    
+
                         { second = Nothing } ->
                             Err <| ArgumentParserInvalidArgument
                                 { argument = second
-                                , title = secondValue.singular
-                                , examples = secondValue.examples
+                                , title = secondArg.value.singular
+                                , examples = secondArg.value.examples
                                 }
 
                 _ ->
@@ -664,36 +723,37 @@ twoArgs combine firstValue secondValue =
 
 {-| Parses exactly three arguments.
 -}
-threeArgs : (a -> b -> c -> d) -> ValueParser a -> ValueParser b -> ValueParser c -> ArgumentParser d
-threeArgs combine firstValue secondValue thirdValue =
+threeArgs : (a -> b -> c -> d) -> Arg a -> Arg b -> Arg c -> ArgumentParser d
+threeArgs combine firstArg secondArg thirdArg =
     ArgumentParser
-        { description = "<" ++ String.join "> <" [firstValue.singular, secondValue.singular, thirdValue.singular] ++ ">"
+        { usage = "<" ++ String.join "> <" [firstArg.value.singular, secondArg.value.singular, thirdArg.value.singular] ++ ">"
+        , positionals = [ positionalFromArg firstArg, positionalFromArg secondArg, positionalFromArg thirdArg ]
         , parseFn = \args ->
             when args is
                 [ first, second, third ] ->
-                    when { first = firstValue.fn first, second = secondValue.fn second, third = thirdValue.fn third } is
+                    when { first = firstArg.value.fn first, second = secondArg.value.fn second, third = thirdArg.value.fn third } is
                         { first = Just firstOk, second = Just secondOk, third = Just thirdOk } ->
                             Ok <| combine firstOk secondOk thirdOk
 
                         { first = Nothing } ->
                             Err <| ArgumentParserInvalidArgument
                                 { argument = first
-                                , title = firstValue.singular
-                                , examples = firstValue.examples
+                                , title = firstArg.value.singular
+                                , examples = firstArg.value.examples
                                 }
-                    
+
                         { second = Nothing } ->
                             Err <| ArgumentParserInvalidArgument
                                 { argument = second
-                                , title = secondValue.singular
-                                , examples = secondValue.examples
+                                , title = secondArg.value.singular
+                                , examples = secondArg.value.examples
                                 }
 
                         { third = Nothing } ->
                             Err <| ArgumentParserInvalidArgument
                                 { argument = third
-                                , title = thirdValue.singular
-                                , examples = thirdValue.examples
+                                , title = thirdArg.value.singular
+                                , examples = thirdArg.value.examples
                                 }
 
                 _ ->
@@ -703,20 +763,26 @@ threeArgs combine firstValue secondValue thirdValue =
 
 {-| Parses zero or more arguments of a single type.
 -}
-zeroOrMoreArgs : ValueParser val -> ArgumentParser (Array val)
-zeroOrMoreArgs parseFn =
-    ArgumentParser 
-        { description = parseFn.plural 
+zeroOrMoreArgs : Arg val -> ArgumentParser (Array val)
+zeroOrMoreArgs arg =
+    ArgumentParser
+        { usage = arg.value.plural
+        , positionals =
+            [ { name = arg.value.plural
+              , description = arg.help
+              , examples = arg.value.examples
+              }
+            ]
         , parseFn = \args ->
             let
                 parsedArgs =
-                    Array.mapAndKeepJust parseFn.fn args
+                    Array.mapAndKeepJust arg.value.fn args
             in
             if Array.length args /= Array.length parsedArgs then
                 Err <| ArgumentParserInvalidArgument
                     { argument = String.join " " args
-                    , title = parseFn.plural
-                    , examples = parseFn.examples
+                    , title = arg.value.plural
+                    , examples = arg.value.examples
                     }
 
             else
@@ -727,9 +793,10 @@ zeroOrMoreArgs parseFn =
 {-| Maps a successfully parsed set of arguments into something else.
 -}
 mapArgs : (a -> b) -> ArgumentParser a -> ArgumentParser b
-mapArgs mapper (ArgumentParser { description = desc, parseFn = fn }) =
-    ArgumentParser 
-        { description = desc 
+mapArgs mapper (ArgumentParser { usage, positionals, parseFn = fn }) =
+    ArgumentParser
+        { usage = usage
+        , positionals = positionals
         , parseFn = \args ->
             when fn args is
                 Ok val ->
@@ -745,8 +812,15 @@ succeeds.
 -}
 oneOfArgs : Array (ArgumentParser val) -> ArgumentParser val
 oneOfArgs argParsers =
-    ArgumentParser 
-        { description = "<one-of>" 
+    ArgumentParser
+        { usage = "<one-of>"
+        , positionals =
+            -- The branches are normally arity variants of the same arguments,
+            -- so describe the first branch's positionals in help.
+            argParsers
+                |> Array.first
+                |> Maybe.map (\(ArgumentParser branch) -> branch.positionals)
+                |> Maybe.withDefault []
         , parseFn = \args ->
             let
                 parseResults =
