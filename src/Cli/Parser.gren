@@ -358,48 +358,51 @@ parseRawTokens knownFlags tokens =
         handleBareFlag withoutPrefix rest acc =
             when Dict.get withoutPrefix knownFlags is
                 Just desc ->
-                    -- Here we depend on the FlagParserDescription's title
-                    -- value. If it's an empty string, we consider it a toggle
-                    -- flag which cannot accept a value. If it's not an empty
-                    -- string, it must have a value.
-                    -- Only consume the next token if the flag requires a value (non-empty title)
-                    if desc.title /= "" && not (Array.isEmpty rest) then
-                        let
-                            nextToken =
-                                Array.first rest |> Maybe.withDefault ""
-                        in
+                    -- Only a value-taking flag consumes the next token. A
+                    -- toggle (or a value flag with no following token) just
+                    -- gets recorded with an empty value.
+                    when desc.kind is
+                        TakesValue _ ->
+                            if not (Array.isEmpty rest) then
+                                let
+                                    nextToken =
+                                        Array.first rest |> Maybe.withDefault ""
+                                in
 
-                        {- if we wanted to allow '--output --legal-filename',
-                        we would set the withoutPrefix/nextToken as key/value
-                        here, and stepNext into the rest of the tokens.
-                            let
-                                restWithoutValue =
-                                    Array.dropFirst 1 rest
-                            in
-                            stepNext restWithoutValue { acc | flags = Dict.set withoutPrefix nextToken acc.flags }
-                        -}
+                                {- if we wanted to allow '--output --legal-filename',
+                                we would set the withoutPrefix/nextToken as key/value
+                                here, and stepNext into the rest of the tokens.
+                                    let
+                                        restWithoutValue =
+                                            Array.dropFirst 1 rest
+                                    in
+                                    stepNext restWithoutValue { acc | flags = Dict.set withoutPrefix nextToken acc.flags }
+                                -}
 
-                        -- Check the next token; does it look like a --flag ?
-                        if not (String.startsWith "--" nextToken) then
-                            -- It does not look like a --flag. Use it as a value
-                            let
-                                restWithoutValue =
-                                    Array.dropFirst 1 rest
-                            in
-                            stepNext restWithoutValue { acc | flags = Dict.set withoutPrefix nextToken acc.flags }
+                                -- Check the next token; does it look like a --flag ?
+                                if not (String.startsWith "--" nextToken) then
+                                    -- It does not look like a --flag. Use it as a value
+                                    let
+                                        restWithoutValue =
+                                            Array.dropFirst 1 rest
+                                    in
+                                    stepNext restWithoutValue { acc | flags = Dict.set withoutPrefix nextToken acc.flags }
 
-                        else
-                            -- It does look like a --flag. Even though we know
-                            -- that the flag we're currently processing needs
-                            -- a value, don't give it a value. This will later
-                            -- trigger the error handling to report either that
-                            -- the next flags is an unknown flag, or that
-                            -- this flag is missing a value.
+                                else
+                                    -- It does look like a --flag. Even though we know
+                                    -- that the flag we're currently processing needs
+                                    -- a value, don't give it a value. This will later
+                                    -- trigger the error handling to report either that
+                                    -- the next flags is an unknown flag, or that
+                                    -- this flag is missing a value.
+                                    stepNext rest { acc | flags = Dict.set withoutPrefix "" acc.flags }
+
+                            else
+                                -- No next token available to use as a value
+                                stepNext rest { acc | flags = Dict.set withoutPrefix "" acc.flags }
+
+                        Toggle ->
                             stepNext rest { acc | flags = Dict.set withoutPrefix "" acc.flags }
-
-                    else
-                        -- Toggle flag or no next token available
-                        stepNext rest { acc | flags = Dict.set withoutPrefix "" acc.flags }
 
                 Nothing ->
                     -- Unknown flag. Treat as toggle (validation happens later)
@@ -479,11 +482,12 @@ commandHelpText appName spec =
                 (\flagName flagDescription acc ->
                     let
                         flagSuffix =
-                            if flagDescription.title == "" then
-                                ""
+                            when flagDescription.kind is
+                                Toggle ->
+                                    ""
 
-                            else
-                                "=<" ++ flagDescription.title ++ ">"
+                                TakesValue { title } ->
+                                    "=<" ++ title ++ ">"
                     in
                     Array.prepend acc
                         [ PP.text ("--" ++ flagName ++ flagSuffix)
@@ -800,15 +804,25 @@ type alias KnownFlags =
     Dict String FlagParserDescription
 
 
-{-| Definition of a single flag.
-The 'title' field  names the type of value it takes.
-The 'title' field is used to determine if the flag accepts a value or not.
-Only toggle flags will have (and, may have) empty titles.
+{-| Whether a flag is a bare toggle, or one that takes a value. A `TakesValue`
+flag carries the `title` (the name of its value type, used in help and error
+messages) and `examples`; a `Toggle` carries neither, so a toggle can't
+accidentally be given a value type.
+-}
+type FlagKind
+    = Toggle
+    | TakesValue
+        { title : String
+        , examples : Array String
+        }
+
+
+{-| Definition of a single flag: its `kind` (which determines whether it
+accepts a value) and a human-readable `description`.
 -}
 type alias FlagParserDescription =
-    { title : String
+    { kind : FlagKind
     , description : String
-    , examples : Array String
     }
 
 
@@ -868,13 +882,14 @@ flagErrorPrettified err =
                 otherFlags =
                     Dict.foldl
                         (\name desc doc ->
-                            if desc.title == "" then
-                                Array.pushLast (PP.text <| "--" ++ name) doc
+                            when desc.kind is
+                                Toggle ->
+                                    Array.pushLast (PP.text <| "--" ++ name) doc
 
-                            else
-                                Array.pushLast 
-                                    (PP.text <| "--" ++ name ++ "=<" ++ desc.title ++ ">")
-                                    doc
+                                TakesValue { title } ->
+                                    Array.pushLast
+                                        (PP.text <| "--" ++ name ++ "=<" ++ title ++ ">")
+                                        doc
                         )
                         []
                         knownFlags
@@ -906,29 +921,31 @@ flagErrorPrettified err =
 
 describeFlagUse : KnownFlags -> String -> PP.Document
 describeFlagUse knownFlags flagName =
-    when Dict.get flagName knownFlags is
-        Just flagDescription ->
+    when Maybe.map .kind (Dict.get flagName knownFlags) is
+        Just (TakesValue { title, examples }) ->
             let
-                examples =
-                    flagDescription.examples
+                exampleDocs =
+                    examples
                         |> Array.map (\exampleStr -> PP.text <| "--" ++ flagName ++ "=" ++ exampleStr)
             in
             PP.verticalBlock
                 [ PP.empty
-                , PP.block 
+                , PP.block
                     [ PP.words ("It neeeds a")
-                    , PP.text (" <" ++ flagDescription.title ++ "> ")
+                    , PP.text (" <" ++ title ++ "> ")
                         |> PP.color PP.Yellow
                     , PP.words " like this:"
                     ]
                 , PP.empty
-                , PP.verticalBlock examples
+                , PP.verticalBlock exampleDocs
                     |> PP.color PP.Green
                     |> PP.indent
                 , PP.empty
                 ]
 
-        Nothing ->
+        -- A Toggle never reaches here: this is only called for the
+        -- MissingValue / InvalidValue errors, which only value flags produce.
+        _ ->
             PP.empty
 
 
@@ -963,12 +980,11 @@ toggle : String -> String -> FlagParser (Bool -> b) -> FlagParser b
 toggle key desc (FlagParser { knownFlags, parseFn = previousSteps }) =
     let
         descriptor =
-            { title = ""
+            { kind = Toggle
             , description = desc
-            , examples = []
             }
     in
-    FlagParser 
+    FlagParser
         { knownFlags = Dict.set key descriptor knownFlags
         , parseFn = \flagDescriptions opts ->
             when previousSteps flagDescriptions (Dict.remove key opts) is
@@ -994,9 +1010,12 @@ flag : String -> ValueParser a -> String -> FlagParser (Maybe a -> b) -> FlagPar
 flag key valueParserFn desc (FlagParser { knownFlags, parseFn = previousSteps }) =
     let
         descriptor =
-            { title = valueParserFn.singular
+            { kind =
+                TakesValue
+                    { title = valueParserFn.singular
+                    , examples = valueParserFn.examples
+                    }
             , description = desc
-            , examples = valueParserFn.examples
             }
     in
     FlagParser
