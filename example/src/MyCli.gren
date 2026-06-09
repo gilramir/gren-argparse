@@ -6,6 +6,8 @@ import Cli.PrettyPrinter as PP
 
 type Command
     = Greet { name : String, loud : Bool }
+    | GreetAll { names : Array String }
+    | Wave { name : Maybe String }
 
 
 parser : Cli.Parser.App Command
@@ -35,6 +37,44 @@ parser =
                 , builder =
                     \name flags ->
                         Greet { name = name, loud = flags.loud }
+                }
+            |> Cli.Parser.withCommand
+                { word = "greet-all"
+                , arguments =
+                    Cli.Parser.oneOrMoreArgs
+                        { value = nameParser
+                        , help = "The people to greet (at least one)"
+                        }
+                , flags =
+                    Cli.Parser.noFlags
+                , commonDescription =
+                    Just "Greet several people at once."
+                , summary =
+                    "The `greet-all` command greets everyone you name:"
+                , example =
+                    PP.words "mytool greet-all Alice Bob Carol"
+                , builder =
+                    \names _flags ->
+                        GreetAll { names = names }
+                }
+            |> Cli.Parser.withCommand
+                { word = "wave"
+                , arguments =
+                    Cli.Parser.optionalArg
+                        { value = nameParser
+                        , help = "Who to wave at (optional)"
+                        }
+                , flags =
+                    Cli.Parser.noFlags
+                , commonDescription =
+                    Just "Wave at someone, or everyone."
+                , summary =
+                    "The `wave` command waves:"
+                , example =
+                    PP.words "mytool wave   (or: mytool wave Alice)"
+                , builder =
+                    \name _flags ->
+                        Wave { name = name }
                 }
     }
 

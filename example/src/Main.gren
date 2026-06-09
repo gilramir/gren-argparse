@@ -21,6 +21,16 @@ main =
                 when command is
                     MyCli.Greet { name, loud } ->
                         Stream.Log.line env.stdout (greeting name loud)
+
+                    MyCli.GreetAll { names } ->
+                        names
+                            |> Array.map (\name -> greeting name False)
+                            |> String.join "\n"
+                            |> Stream.Log.line env.stdout
+
+                    MyCli.Wave { name } ->
+                        Stream.Log.line env.stdout
+                            ("(waves at " ++ Maybe.withDefault "everyone" name ++ ")")
         }
 
 

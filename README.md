@@ -39,8 +39,10 @@ Cli.Parser.defineGroup
 
 Each command declares:
 
-- **arguments** — `noArgs`, `oneArg`, `twoArgs`, `threeArgs`, `zeroOrMoreArgs`,
-  combined with `mapArgs` / `oneOfArgs`. Each takes a `ValueParser`.
+- **arguments** — `noArgs`, `oneArg`, `twoArgs`, `threeArgs`, `optionalArg`
+  (zero-or-one → `Maybe`), `zeroOrMoreArgs` (`*`), `oneOrMoreArgs` (`+`),
+  combined with `mapArgs` / `oneOfArgs`. Each positional takes an
+  `Arg { value, help }` (a `ValueParser` plus per-argument help text).
 - **flags** — `initFlags` seeds a record constructor; `toggle` adds a `Bool`
   flag, `flag` adds a `Maybe value` flag. They assemble your flags record
   type-safely as you chain them.

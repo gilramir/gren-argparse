@@ -21,6 +21,8 @@ module Cli.Parser exposing
     , twoArgs
     , threeArgs
     , zeroOrMoreArgs
+    , oneOrMoreArgs
+    , optionalArg
     , mapArgs
     , oneOfArgs
     --
@@ -58,7 +60,7 @@ Into a data structure.
 
 ## Arguments
 
-@docs ValueParser, Arg, ArgumentParser, ArgumentParserError, argumentErrorPrettified, noArgs, oneArg, twoArgs, threeArgs, zeroOrMoreArgs, mapArgs, oneOfArgs
+@docs ValueParser, Arg, ArgumentParser, ArgumentParserError, argumentErrorPrettified, noArgs, oneArg, twoArgs, threeArgs, zeroOrMoreArgs, oneOrMoreArgs, optionalArg, mapArgs, oneOfArgs
 
 ## Flags
 
@@ -526,6 +528,16 @@ commandHelpText appName spec =
                 knownFlags
                 |> PP.verticalBlock
                 |> PP.indent
+
+        flagsSection =
+            if Dict.isEmpty knownFlags then
+                []
+
+            else
+                [ PP.words "You can customize this command with the following flags:"
+                , PP.empty
+                , flagDocument
+                ]
     in
     PP.verticalBlock <|
         [ PP.words spec.summary
@@ -538,10 +550,7 @@ commandHelpText appName spec =
         , PP.empty
         ]
             ++ argumentsSection
-            ++ [ PP.words "You can customize this command with the following flags:"
-               , PP.empty
-               , flagDocument
-               ]
+            ++ flagsSection
 
 
 -- ARGS
@@ -787,6 +796,70 @@ zeroOrMoreArgs arg =
 
             else
                 Ok parsedArgs
+        }
+
+
+{-| Parses one or more arguments of a single type. Like
+[zeroOrMoreArgs](#zeroOrMoreArgs), but fails if no arguments are given.
+-}
+oneOrMoreArgs : Arg val -> ArgumentParser (Array val)
+oneOrMoreArgs arg =
+    ArgumentParser
+        { usage = arg.value.plural
+        , positionals =
+            [ { name = arg.value.plural
+              , description = arg.help
+              , examples = arg.value.examples
+              }
+            ]
+        , parseFn = \args ->
+            if Array.isEmpty args then
+                Err <| ArgumentParserWrongArity { expected = 1, actual = 0 }
+
+            else
+                let
+                    parsedArgs =
+                        Array.mapAndKeepJust arg.value.fn args
+                in
+                if Array.length args /= Array.length parsedArgs then
+                    Err <| ArgumentParserInvalidArgument
+                        { argument = String.join " " args
+                        , title = arg.value.plural
+                        , examples = arg.value.examples
+                        }
+
+                else
+                    Ok parsedArgs
+        }
+
+
+{-| Parses an optional single argument: zero arguments yields `Nothing`, exactly
+one yields `Just` the parsed value, and anything more is an error.
+-}
+optionalArg : Arg val -> ArgumentParser (Maybe val)
+optionalArg arg =
+    ArgumentParser
+        { usage = "[<" ++ arg.value.singular ++ ">]"
+        , positionals = [ positionalFromArg arg ]
+        , parseFn = \args ->
+            when args is
+                [] ->
+                    Ok Nothing
+
+                [ value ] ->
+                    when arg.value.fn value is
+                        Just parsed ->
+                            Ok (Just parsed)
+
+                        Nothing ->
+                            Err <| ArgumentParserInvalidArgument
+                                { argument = value
+                                , title = arg.value.singular
+                                , examples = arg.value.examples
+                                }
+
+                _ ->
+                    Err <| ArgumentParserWrongArity { expected = 1, actual = Array.length args }
         }
 
 

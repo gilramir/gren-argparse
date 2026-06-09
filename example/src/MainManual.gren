@@ -48,6 +48,16 @@ main =
                         MyCli.Greet { name, loud } ->
                             out (PP.text (greeting name loud))
 
+                        MyCli.GreetAll { names } ->
+                            names
+                                |> Array.map (\name -> greeting name False)
+                                |> String.join "\n"
+                                |> PP.text
+                                |> out
+
+                        MyCli.Wave { name } ->
+                            out (PP.text ("(waves at " ++ Maybe.withDefault "everyone" name ++ ")"))
+
 
 greeting : String -> Bool -> String
 greeting name loud =
