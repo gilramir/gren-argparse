@@ -1,0 +1,74 @@
+module Cli.Program exposing ( run )
+
+{-| A convenience wrapper that turns a [Cli.Parser.App](Cli.Parser#App) into a
+ready-to-run Node program, handling the boilerplate most command-line tools
+want:
+
+* parse errors (unknown command, bad flags, bad arguments) are printed to
+  stderr and the program exits with code `1`
+* `--help`, `--version`, and the bare-invocation help screen are printed to
+  stdout (exit `0`)
+* a successfully parsed command is handed to your `onCommand` function
+
+This is opinionated on purpose. Programs that need finer control — a custom
+exit code, filesystem or other permissions, or a full model/update loop —
+should skip this module and call [Cli.Parser.run](Cli.Parser#run) directly
+inside their own `Node` program. See `example/src/MainManual.gren`.
+
+@docs run
+-}
+
+import Cli.Parser
+import Cli.PrettyPrinter as PP
+import Node
+import Stream.Log
+import Task exposing (Task)
+
+
+{-| Build a `Node` program from a parser and a command handler.
+
+    main : Node.SimpleProgram a
+    main =
+        Cli.Program.run
+            { parser = MyCli.parser
+            , onCommand =
+                \env command ->
+                    when command is
+                        MyCli.Greet { name } ->
+                            Stream.Log.line env.stdout ("Hello, " ++ name)
+            }
+
+`onCommand` receives the [Node.Environment](Node#Environment) (stdout, stderr,
+args, …) and your parsed command, and returns a `Task String {}`. If it fails,
+the `String` error is printed to stderr and the program exits with code `1` —
+the same treatment a parse error gets.
+-}
+run :
+    { parser : Cli.Parser.App cmd
+    , onCommand : Node.Environment -> cmd -> Task String {}
+    }
+    -> Node.SimpleProgram a
+run { parser, onCommand } =
+    Node.defineSimpleProgram <| \env ->
+        let
+            failWith doc =
+                Stream.Log.line env.stderr (PP.toString doc)
+                    |> Task.andThen (\_ -> Node.setExitCode 1)
+        in
+        Node.endSimpleProgram <|
+            when Cli.Parser.run (Array.dropFirst 2 env.args) parser is
+                Cli.Parser.UnknownCommand name ->
+                    failWith (PP.text ("I don't recognize this command: " ++ name))
+
+                Cli.Parser.BadFlags err ->
+                    failWith (Cli.Parser.flagErrorPrettified err)
+
+                Cli.Parser.BadArguments err ->
+                    failWith (Cli.Parser.argumentErrorPrettified err)
+
+                Cli.Parser.HelpText doc ->
+                    Stream.Log.line env.stdout (PP.toString doc)
+
+                Cli.Parser.Success cmd ->
+                    onCommand env cmd
+                        |> Task.onError (\msg -> failWith (PP.text msg))

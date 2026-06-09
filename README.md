@@ -3,12 +3,16 @@
 Declarative command-line argument parsing for Gren, with built-in `--help`,
 `--version`, and prettified error messages.
 
-Extracted from the Gren compiler's CLI (`gren init`, `gren make`, …). Two
+Extracted from the Gren compiler's CLI (`gren init`, `gren make`, …). Three
 modules:
 
-- **`Cli.Parser`** — turn `argv` into a value of your own command type.
+- **`Cli.Parser`** — turn `argv` into a value of your own command type. Pure;
+  no I/O.
 - **`Cli.PrettyPrinter`** — the ANSI-color-aware document type used for help
   and error output (`PP.text`, `PP.words`, `PP.block`, `PP.color`, …).
+- **`Cli.Program`** — an optional convenience runner that wires `Cli.Parser`
+  into a `Node` program, printing parse errors to stderr and exiting `1`,
+  printing help to stdout, and handing successful commands to you.
 
 ## How it works
 
@@ -52,6 +56,35 @@ nameParser =
 ```
 
 Built-in value parsers: `pathParser`, `grenFileParser`.
+
+## Running it
+
+You have two options.
+
+**`Cli.Program.run` (convenient).** Hands you only the success case; parse
+errors go to stderr with exit `1`, help goes to stdout:
+
+```gren
+main : Node.SimpleProgram a
+main =
+    Cli.Program.run
+        { parser = MyCli.parser
+        , onCommand =
+            \env command ->
+                when command is
+                    MyCli.Greet { name } ->
+                        Stream.Log.line env.stdout ("Hello, " ++ name)
+        }
+```
+
+`onCommand` returns a `Task String {}`; if it fails, the `String` is printed to
+stderr and the program exits `1` — the same treatment parse errors get. See
+`example/src/Main.gren`.
+
+**`Cli.Parser.run` (full control).** Call the pure parser yourself and handle
+each `CommandParseResult` constructor by hand (the `argv → result → dispatch`
+flow above) — use this when you need a custom exit code, filesystem/other
+permissions, or your own model/update loop. See `example/src/MainManual.gren`.
 
 ## Example
 

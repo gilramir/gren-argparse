@@ -1,45 +1,27 @@
 module Main exposing (main)
 
+{-| The convenient path: let `Cli.Program.run` handle parse errors, help, and
+exit codes, so you only write the handler for successfully parsed commands.
+
+Build with: gren make src/Main.gren --output=app
+-}
+
 import MyCli
-import Cli.Parser
-import Cli.PrettyPrinter as PP
+import Cli.Program
 import Node
 import Stream.Log
-import Task
 
 
 main : Node.SimpleProgram a
 main =
-    Node.defineSimpleProgram <| \env ->
-        let
-            args =
-                Array.dropFirst 2 env.args
-
-            out doc =
-                Stream.Log.line env.stdout (PP.toString doc)
-
-            fail doc =
-                Stream.Log.line env.stderr (PP.toString doc)
-                    |> Task.andThen (\_ -> Node.setExitCode 1)
-        in
-        Node.endSimpleProgram <|
-            when Cli.Parser.run args MyCli.parser is
-                Cli.Parser.UnknownCommand name ->
-                    fail (PP.text ("Unknown command: " ++ name))
-
-                Cli.Parser.BadFlags err ->
-                    fail (Cli.Parser.flagErrorPrettified err)
-
-                Cli.Parser.BadArguments err ->
-                    fail (Cli.Parser.argumentErrorPrettified err)
-
-                Cli.Parser.HelpText doc ->
-                    out doc
-
-                Cli.Parser.Success cmd ->
-                    when cmd is
-                        MyCli.Greet { name, loud } ->
-                            out (PP.text (greeting name loud))
+    Cli.Program.run
+        { parser = MyCli.parser
+        , onCommand =
+            \env command ->
+                when command is
+                    MyCli.Greet { name, loud } ->
+                        Stream.Log.line env.stdout (greeting name loud)
+        }
 
 
 greeting : String -> Bool -> String
