@@ -1,0 +1,1066 @@
+module Cli.Parser exposing 
+    ( App
+    , CommandParseResult(..)
+    , run
+    --
+    , GroupParser
+    , defineGroup
+    , withCommand
+    , withPrefix
+    --
+    , Command
+    --
+    , ValueParser
+    --
+    , ArgumentParser
+    , ArgumentParserError(..)
+    , argumentErrorPrettified
+    , noArgs
+    , oneArg
+    , twoArgs
+    , threeArgs
+    , zeroOrMoreArgs
+    , mapArgs
+    , oneOfArgs
+    --
+    , FlagParser
+    , FlagParserError(..)
+    , flagErrorPrettified
+    , noFlags
+    , initFlags
+    , toggle
+    , flag
+    --
+    , pathParser
+    , grenFileParser
+    )
+
+
+{-| A module for parsing arguments from the command line. With this you can turn the following
+
+   mycmd greet --overwrite file.txt
+
+Into a data structure.
+
+* `mycmd` is the [Application](#App)
+* `greet` is the [Command](#Command)
+* `--overwrite` is a [Flag](#FlagParser)
+* `file.txt` is an [Argument](#ArgumentParser)
+
+## Application
+
+@docs App, run
+
+## Groups
+
+@docs GroupParser, Command, CommandParseResult, defineGroup, withCommand, withPrefix
+
+## Arguments
+
+@docs ValueParser, ArgumentParser, ArgumentParserError, argumentErrorPrettified, noArgs, oneArg, twoArgs, threeArgs, zeroOrMoreArgs, mapArgs, oneOfArgs
+
+## Flags
+
+@docs FlagParser, FlagParserError, flagErrorPrettified, noFlags, initFlags, toggle, flag
+
+## Common parsers
+
+@docs pathParser, grenFileParser
+-}
+
+
+import Dict exposing (Dict)
+import FileSystem.Path as Path exposing (Path)
+import Cli.PrettyPrinter as PP
+
+
+{-| Defines a command line application.
+
+* `name` is the name of the application
+* `version` is the application version
+* `commands` is a group of commands that this application recognizes
+* `intro` and `outro` is used when the user calls the application without
+any arguments. They define what text comes before and after the list of
+supported commands.
+-}
+type alias App result =
+    { name : String
+    , version : String
+    , commands : GroupParser result
+    , intro : PP.Document
+    , outro : PP.Document
+    }
+
+
+{-| A parser for a group, or collection, of commands.
+-}
+type GroupParser result
+    = GroupParser 
+        { knownCommands : Dict String (Maybe String)
+        , parseFn : String -> String -> Array String -> CommandParseResult result
+        }
+
+
+{-| Defines an empty group of commands. To add commands to this group, you'll
+need to use [withCommand](#withCommand) and [withPrefix](#withPrefix).
+-}
+defineGroup : GroupParser result
+defineGroup =
+    GroupParser
+        { knownCommands = Dict.empty 
+        , parseFn = \_appName name _args ->
+            UnknownCommand name
+        }
+
+
+{-| Returns a new group that contains the given command. If there are multiple
+commands in the group with the same `word`, then the last registered command
+wins.
+-}
+withCommand : Command args flags result -> GroupParser result -> GroupParser result
+withCommand command (GroupParser { knownCommands, parseFn = next }) =
+    GroupParser 
+        { knownCommands = 
+            Dict.set command.word command.commonDescription knownCommands
+        , parseFn = \appName name args ->
+            if name /= command.word then
+                next appName name args
+
+            else
+                runCommand appName args command
+        }
+
+
+{-| Embeds a group of commands into an existing group, accessible by the given prefix.
+-}
+withPrefix : String -> GroupParser result -> GroupParser result -> GroupParser result
+withPrefix prefix prefixedCommands (GroupParser { knownCommands, parseFn = nextCommand }) =
+    GroupParser
+        { knownCommands =
+            Dict.set prefix Nothing knownCommands
+        , parseFn = \appName name args ->
+            if name /= prefix then
+                nextCommand appName name args
+
+            else
+                runPrefix appName prefix args prefixedCommands
+        }
+
+
+{-| Takes input from the user in the form of an `Array` of `String`, and parses it according
+to the given `App` definition.
+-}
+run : Array String -> App result -> CommandParseResult result
+run tokens appDef =
+    let
+        (GroupParser { parseFn = parse }) =
+            appDef.commands
+        
+    in
+        when Array.popFirst tokens is
+            Just { first = command, rest = rawTokensAfterCommand } ->
+                when command is
+                    -- If the "command" that was found is actually
+                    -- one of our special flags, handle it here.
+                    -- Otherwise, call the parse function.
+                    "--version" -> HelpText <| PP.text appDef.version
+                    "--help" -> HelpText <| appHelpText appDef
+                    _ -> parse appDef.name command rawTokensAfterCommand
+
+            Nothing ->
+                -- There's no first token, thus, no command, so show the Help.
+                HelpText <| appHelpText appDef
+
+
+appHelpText : App result -> PP.Document
+appHelpText appDef =
+    let
+        (GroupParser { knownCommands }) =
+            appDef.commands
+        
+        commonCommands =
+            knownCommands
+                |> Dict.mapAndKeepJust (\_name commonDescription -> commonDescription)
+
+        knownCommandsDocument =
+            PP.verticalBlock
+                [ knownCommands
+                    |> Dict.keys
+                    |> Array.map (\command -> PP.text <| appDef.name ++ " " ++ command)
+                    |> PP.verticalBlock
+                    |> PP.indent
+                    |> PP.color PP.Cyan
+                , PP.empty
+                , PP.block
+                    [ PP.text "Adding the "
+                    , PP.color PP.Cyan <| PP.text "--help"
+                    , PP.text " flag gives you more details about a specific command."
+                    ]
+                ]
+
+        commandBlock =
+            if Dict.isEmpty commonCommands then
+                PP.verticalBlock
+                    [ PP.words "In order to do something useful, you need to give me a command. Here's a full list:"
+                    , PP.empty
+                    , knownCommandsDocument
+                    ]
+            else
+                PP.verticalBlock
+                    [ PP.words "The most common commands are:"
+                    , PP.empty
+                    , commonCommands
+                        |> Dict.foldl
+                            (\name description acc ->
+                                Array.pushLast
+                                    (PP.verticalBlock
+                                        [ PP.intenseColor PP.Cyan <| PP.text (appDef.name ++ " " ++ name)
+                                        , PP.indent <|
+                                            PP.words description
+                                        , PP.empty
+                                        ]
+                                    )
+                                    acc
+                            )
+                            []
+                        |> PP.verticalBlock
+                        |> PP.indent
+                    , PP.words "There are a bunch of other commands as well though. Here is a full list:"
+                    , PP.empty
+                    , knownCommandsDocument
+                    ]
+    in
+    PP.verticalBlock
+        [ appDef.intro
+        , PP.empty
+        , commandBlock
+        , PP.empty
+        , appDef.outro
+        , PP.empty
+        ]
+
+
+runPrefix : String -> String -> Array String -> GroupParser result -> CommandParseResult result
+runPrefix appName prefixName rawTokensAfterPrefix ((GroupParser { parseFn = parse }) as groupParser) =
+    when Array.popFirst rawTokensAfterPrefix is
+        Just { first = command, rest = rawTokens } ->
+            parse appName command rawTokens
+
+        Nothing ->
+            HelpText <| prefixHelpText appName prefixName groupParser
+
+
+prefixHelpText : String -> String -> GroupParser result -> PP.Document
+prefixHelpText appName prefixName (GroupParser { knownCommands }) =
+    let
+        knownCommandsDocument =
+            PP.verticalBlock
+                [ knownCommands
+                    |> Dict.keys
+                    |> Array.map (\command -> PP.text <| appName ++ " " ++ prefixName ++ " " ++ command)
+                    |> PP.verticalBlock
+                    |> PP.indent
+                    |> PP.color PP.Cyan
+                , PP.empty
+                , PP.block
+                    [ PP.text "Adding the "
+                    , PP.color PP.Cyan <| PP.text "--help"
+                    , PP.text " flag gives you more details about a specific command."
+                    ]
+                ]
+    in
+    PP.verticalBlock
+        [ PP.words "This is just a prefix. In order to do something useful, you need to give me a command. Here's a full list:"
+        , PP.empty
+        , knownCommandsDocument
+        , PP.empty
+        ]
+
+
+-- COMMAND
+
+
+{-| Definition of a command.
+-}
+type alias Command args flags result =
+    { word : String
+    , arguments : ArgumentParser args
+    , flags : FlagParser flags
+    , commonDescription : Maybe String
+    , summary : String
+    , example : PP.Document
+    , builder : args -> flags -> result
+    }
+
+
+{-| The result of parsing user input.
+-}
+type CommandParseResult a
+    = UnknownCommand String
+    | BadFlags FlagParserError
+    | BadArguments ArgumentParserError
+    | HelpText PP.Document
+    | Success a
+
+
+parseRawTokens : KnownFlags -> Array String -> { flags : Dict String String, args : Array String }
+parseRawTokens knownFlags tokens =
+    let
+
+        -- Split a "lhs=rhs" string (left-hand-side, right-hand-side),
+        -- on the first equals sign ("="), but where the rhs can have ='s.
+        -- If there is indeed a "lhs=rhs" pattern, return Just LHS RHS,
+        -- otherwise return Nothing.
+        splitOnFirstEqual : String -> Maybe { lhs: String, rhs: String }
+        splitOnFirstEqual input =
+            let
+                equalIndex = String.firstIndexOf "=" input
+            in
+                when equalIndex is
+                    Nothing -> Nothing
+                    Just i ->
+                        Just
+                            { lhs = String.takeFirst (i) input
+                            , rhs = String.dropFirst (i+1) input
+                            }
+
+        -- Handle a '--flag=value' token, or 'arg'
+        step: String -> Array String -> { flags: Dict String String, args: Array String } -> { flags: Dict String String, args: Array String }
+        step token rest acc =
+            if String.startsWith "--" token then
+                let
+                    withoutPrefix =
+                        String.dropFirst 2 token
+
+                    maybeFlagValue =
+                        splitOnFirstEqual withoutPrefix
+
+                in
+                when maybeFlagValue is
+                    Just { lhs = flagName, rhs = value } ->
+                        stepNext rest { acc | flags = Dict.set flagName value acc.flags }
+
+                    Nothing->
+                        -- Handle a flag without a '='
+                        -- This is impossible, as 'step' is only called when
+                        -- '=' is present. To appease the compiler, we put in the
+                        -- logic which should run, but it was actually handled in
+                        -- handleBareFlag
+                        stepNext rest { acc | flags = Dict.set withoutPrefix "" acc.flags }
+
+            else
+                -- Positional argument
+                stepNext rest { acc | args = Array.pushLast token acc.args }
+
+        -- Special handling for flag tokens that do not have a "=" in them.
+        -- This would be '--flag value', but not '--flag=value'
+        handleBareFlag : String -> Array String -> { flags : Dict String String, args : Array String } -> { flags : Dict String String, args : Array String }
+        handleBareFlag withoutPrefix rest acc =
+            when Dict.get withoutPrefix knownFlags is
+                Just desc ->
+                    -- Here we depend on the FlagParserDescription's title
+                    -- value. If it's an empty string, we consider it a toggle
+                    -- flag which cannot accept a value. If it's not an empty
+                    -- string, it must have a value.
+                    -- Only consume the next token if the flag requires a value (non-empty title)
+                    if desc.title /= "" && not (Array.isEmpty rest) then
+                        let
+                            nextToken =
+                                Array.first rest |> Maybe.withDefault ""
+                        in
+
+                        {- if we wanted to allow '--output --legal-filename',
+                        we would set the withoutPrefix/nextToken as key/value
+                        here, and stepNext into the rest of the tokens.
+                            let
+                                restWithoutValue =
+                                    Array.dropFirst 1 rest
+                            in
+                            stepNext restWithoutValue { acc | flags = Dict.set withoutPrefix nextToken acc.flags }
+                        -}
+
+                        -- Check the next token; does it look like a --flag ?
+                        if not (String.startsWith "--" nextToken) then
+                            -- It does not look like a --flag. Use it as a value
+                            let
+                                restWithoutValue =
+                                    Array.dropFirst 1 rest
+                            in
+                            stepNext restWithoutValue { acc | flags = Dict.set withoutPrefix nextToken acc.flags }
+
+                        else
+                            -- It does look like a --flag. Even though we know
+                            -- that the flag we're currently processing needs
+                            -- a value, don't give it a value. This will later
+                            -- trigger the error handling to report either that
+                            -- the next flags is an unknown flag, or that
+                            -- this flag is missing a value.
+                            stepNext rest { acc | flags = Dict.set withoutPrefix "" acc.flags }
+
+                    else
+                        -- Toggle flag or no next token available
+                        stepNext rest { acc | flags = Dict.set withoutPrefix "" acc.flags }
+
+                Nothing ->
+                    -- Unknown flag. Treat as toggle (validation happens later)
+                    stepNext rest { acc | flags = Dict.set withoutPrefix "" acc.flags }
+
+        -- Step into the next token
+        stepNext : Array String -> { flags: Dict String String, args: Array String } -> { flags: Dict String String, args: Array String }
+        stepNext tokens_ acc =
+            when Array.popFirst tokens_ is
+                Just { first = token, rest = remaining } ->
+                    if String.startsWith "--" token && not (String.contains "=" token) then
+                        -- Bare flag (--flag with no '=') needs special handling
+                        let
+                            withoutPrefix =
+                                String.dropFirst 2 token
+                        in
+                        if withoutPrefix == "" then
+                            -- Special case: "--" stops flag parsing (POSIX convention)
+                            -- Discard "--" and treat the rest as positional args
+                            { acc | args = acc.args ++ remaining }
+                        else
+                            handleBareFlag withoutPrefix remaining acc
+
+                    else
+                        -- The token is either '--flag=value' or 'arg'
+                        step token remaining acc
+
+                Nothing ->
+                    -- There are no more tokens.
+                    acc
+    in
+    stepNext tokens { flags = Dict.empty, args = [] }
+
+
+runCommand : String -> Array String -> Command args flags result -> CommandParseResult result
+runCommand appName rawTokens spec =
+    let
+        (FlagParser { knownFlags, parseFn = parseFlags }) = spec.flags
+
+        { flags, args } = parseRawTokens knownFlags rawTokens
+
+        (ArgumentParser { parseFn = parseArgs }) = spec.arguments
+
+    in
+    when Dict.get "help" flags is
+        Just "" ->
+            -- The user gave a command and a --help flag
+            HelpText <| commandHelpText appName spec
+
+        _ ->
+            when
+                { argResult = parseArgs args
+                , flagResult = parseFlags knownFlags flags
+                }
+            is
+                { argResult = Ok argValue, flagResult = Ok flagValues } ->
+                    Success <| spec.builder argValue flagValues
+    
+                { argResult = Err err } ->
+                    BadArguments err
+    
+                { flagResult = Err err } ->
+                    BadFlags err
+
+
+commandHelpText : String -> Command args flags result -> PP.Document
+commandHelpText appName spec =
+    let
+        (ArgumentParser { description = argumentType }) =
+            spec.arguments
+        
+        (FlagParser { knownFlags }) =
+            spec.flags
+
+        flagDocument =
+            Dict.foldl
+                (\flagName flagDescription acc ->
+                    let
+                        flagSuffix =
+                            if flagDescription.title == "" then
+                                ""
+
+                            else
+                                "=<" ++ flagDescription.title ++ ">"
+                    in
+                    Array.prepend acc
+                        [ PP.text ("--" ++ flagName ++ flagSuffix)
+                            |> PP.color PP.Cyan
+                        , PP.words flagDescription.description
+                            |> PP.indent
+                        , PP.empty
+                        ]
+                )
+                []
+                knownFlags
+                |> PP.verticalBlock
+                |> PP.indent
+    in
+    PP.verticalBlock
+        [ PP.words spec.summary
+        , PP.empty
+        , PP.words (appName ++ " " ++ spec.word ++ " " ++ argumentType)
+            |> PP.indent
+            |> PP.color PP.Cyan
+        , PP.empty
+        , spec.example
+        , PP.empty
+        , PP.words "You can customize this command with the following flags:"
+        , PP.empty
+        , flagDocument
+        ]
+
+
+-- ARGS
+
+
+{-| Arguments are values that a [Command](#Command) requires to function. An `ArgumentParser`
+is a way of converting an arbitrary number of `String` inputs into Gren values.
+-}
+type ArgumentParser val
+    = ArgumentParser
+        { description : String
+        , parseFn : Array String -> Result ArgumentParserError val
+        }
+
+
+{-| Defines an argument value. The `fn` property is the function that parses
+the `String` representation of an argument into its final form.
+-}
+type alias ValueParser val =
+    { singular : String
+    , plural : String
+    , fn : (String -> Maybe val)
+    , examples : Array String
+    }
+
+
+{-| There are mainly two things that can go wrong when parsing arguments. You can either get an
+unexpected number of arguments or one or more of those arguments may fail to parse.
+-}
+type ArgumentParserError
+    = ArgumentParserWrongArity { expected : Int, actual : Int }
+    | ArgumentParserInvalidArgument { argument : String, title : String, examples : Array String }
+
+
+{-| Turns an [ArgumentParserError](#ArgumentParserError) into a prettified `String`.
+-}
+argumentErrorPrettified : ArgumentParserError -> PP.Document
+argumentErrorPrettified err =
+    when err is
+        ArgumentParserWrongArity info ->
+            PP.verticalBlock
+                [ PP.words <| 
+                    "I was expecting "
+                        ++ String.fromInt info.expected
+                        ++ " arguments, but seem to have received "
+                        ++ String.fromInt info.actual
+                        ++ "."
+                , PP.empty
+                ]
+
+        ArgumentParserInvalidArgument info ->
+            PP.verticalBlock
+                [ PP.words "I'm having trouble with this argument:"
+                , PP.empty
+                , PP.text info.argument
+                    |> PP.color PP.Red
+                    |> PP.indent
+                , PP.empty
+                , PP.block
+                    [ PP.words "It's supposed to be a"
+                    , PP.text (" <" ++ info.title ++ "> ")
+                        |> PP.color PP.Yellow
+                    , PP.words "value, like one of these:"
+                    ]
+                , PP.empty
+                , info.examples
+                    |> Array.map PP.text
+                    |> PP.verticalBlock
+                    |> PP.color PP.Green
+                    |> PP.indent
+                , PP.empty
+                ]
+
+
+{-| Some [Command](#Command)s doesn't require arguments. This parser checks that exactly 0
+arguments were provided.
+-}
+noArgs : ArgumentParser {}
+noArgs =
+    ArgumentParser 
+        { description = ""
+        , parseFn = \args ->
+            if Array.length args /= 0 then
+                Err <| ArgumentParserWrongArity { expected = 0, actual = Array.length args }
+
+            else
+                Ok {}
+        }
+
+
+{-| Parses exactly one argument.
+-}
+oneArg : ValueParser val -> ArgumentParser val
+oneArg parseFn =
+    ArgumentParser
+        { description = "<" ++ parseFn.singular ++ ">"
+        , parseFn = \args ->
+            when args is
+                [ arg ] ->
+                    parseFn.fn arg
+                        |> Maybe.map Ok
+                        |> Maybe.withDefault 
+                            (Err <| 
+                                ArgumentParserInvalidArgument
+                                    { argument = arg
+                                    , title = parseFn.singular
+                                    , examples = parseFn.examples
+                                    }
+                            )
+
+                _ ->
+                    Err <| ArgumentParserWrongArity { expected = 1, actual = Array.length args }
+        }
+
+
+{-| Parses exactly two arguments.
+-}
+twoArgs : (a -> b -> c) -> ValueParser a -> ValueParser b -> ArgumentParser c
+twoArgs combine firstValue secondValue =
+    ArgumentParser 
+        { description = "<" ++ firstValue.singular ++ "> <" ++ secondValue.singular ++ ">"
+        , parseFn = \args ->
+            when args is
+                [ first, second ] ->
+                    when { first = firstValue.fn first, second = secondValue.fn second } is
+                        { first = Just firstOk, second = Just secondOk } ->
+                            Ok <| combine firstOk secondOk
+
+                        { first = Nothing } ->
+                            Err <| ArgumentParserInvalidArgument
+                                { argument = first
+                                , title = firstValue.singular
+                                , examples = firstValue.examples
+                                }
+                    
+                        { second = Nothing } ->
+                            Err <| ArgumentParserInvalidArgument
+                                { argument = second
+                                , title = secondValue.singular
+                                , examples = secondValue.examples
+                                }
+
+                _ ->
+                    Err <| ArgumentParserWrongArity { expected = 2, actual = Array.length args }
+        }
+
+
+{-| Parses exactly three arguments.
+-}
+threeArgs : (a -> b -> c -> d) -> ValueParser a -> ValueParser b -> ValueParser c -> ArgumentParser d
+threeArgs combine firstValue secondValue thirdValue =
+    ArgumentParser
+        { description = "<" ++ String.join "> <" [firstValue.singular, secondValue.singular, thirdValue.singular] ++ ">"
+        , parseFn = \args ->
+            when args is
+                [ first, second, third ] ->
+                    when { first = firstValue.fn first, second = secondValue.fn second, third = thirdValue.fn third } is
+                        { first = Just firstOk, second = Just secondOk, third = Just thirdOk } ->
+                            Ok <| combine firstOk secondOk thirdOk
+
+                        { first = Nothing } ->
+                            Err <| ArgumentParserInvalidArgument
+                                { argument = first
+                                , title = firstValue.singular
+                                , examples = firstValue.examples
+                                }
+                    
+                        { second = Nothing } ->
+                            Err <| ArgumentParserInvalidArgument
+                                { argument = second
+                                , title = secondValue.singular
+                                , examples = secondValue.examples
+                                }
+
+                        { third = Nothing } ->
+                            Err <| ArgumentParserInvalidArgument
+                                { argument = third
+                                , title = thirdValue.singular
+                                , examples = thirdValue.examples
+                                }
+
+                _ ->
+                    Err <| ArgumentParserWrongArity { expected = 3, actual = Array.length args }
+        }
+
+
+{-| Parses zero or more arguments of a single type.
+-}
+zeroOrMoreArgs : ValueParser val -> ArgumentParser (Array val)
+zeroOrMoreArgs parseFn =
+    ArgumentParser 
+        { description = parseFn.plural 
+        , parseFn = \args ->
+            let
+                parsedArgs =
+                    Array.mapAndKeepJust parseFn.fn args
+            in
+            if Array.length args /= Array.length parsedArgs then
+                Err <| ArgumentParserInvalidArgument
+                    { argument = String.join " " args
+                    , title = parseFn.plural
+                    , examples = parseFn.examples
+                    }
+
+            else
+                Ok parsedArgs
+        }
+
+
+{-| Maps a successfully parsed set of arguments into something else.
+-}
+mapArgs : (a -> b) -> ArgumentParser a -> ArgumentParser b
+mapArgs mapper (ArgumentParser { description = desc, parseFn = fn }) =
+    ArgumentParser 
+        { description = desc 
+        , parseFn = \args ->
+            when fn args is
+                Ok val ->
+                    Ok (mapper val)
+
+                Err err ->
+                    Err err
+        }
+
+
+{-| A list of parsers that will be tried one after another until one
+succeeds.
+-}
+oneOfArgs : Array (ArgumentParser val) -> ArgumentParser val
+oneOfArgs argParsers =
+    ArgumentParser 
+        { description = "<one-of>" 
+        , parseFn = \args ->
+            let
+                parseResults =
+                    Array.map (\(ArgumentParser { parseFn = fn }) -> fn args) argParsers
+            in
+            when Result.firstOk parseResults is
+                Just result ->
+                    Ok result
+
+                Nothing ->
+                    parseResults
+                        |> Array.findFirst
+                            (\result ->
+                                when result is
+                                    Ok _ ->
+                                        False
+
+                                    Err (ArgumentParserWrongArity _) ->
+                                        False
+
+                                    _ ->
+                                        True
+                            )
+                        |> (\maybeErr ->
+                            when maybeErr is
+                                Nothing ->
+                                    Array.first parseResults
+
+                                Just err ->
+                                    Just err.value
+                        )
+                        |> Maybe.withDefault 
+                            (Err <| ArgumentParserInvalidArgument
+                                { argument = String.join " " args
+                                , title = "<one-of>" 
+                                , examples = []
+                                }
+                            )
+        }
+
+
+-- FLAGS
+
+
+{-| Flags are prefixed with `--` and are meant to customize a command.
+-}
+type FlagParser val
+    = FlagParser 
+        { knownFlags : KnownFlags
+        , parseFn : KnownFlags -> Dict String String -> Result FlagParserError val
+        }
+
+
+type alias KnownFlags =
+    Dict String FlagParserDescription
+
+
+{-| Definition of a single flag.
+The 'title' field  names the type of value it takes.
+The 'title' field is used to determine if the flag accepts a value or not.
+Only toggle flags will have (and, may have) empty titles.
+-}
+type alias FlagParserDescription =
+    { title : String
+    , description : String
+    , examples : Array String
+    }
+
+
+{-| There are several things that can go wrong when parsing flags:
+
+* The parser can find an associated value for a flag that requires none.
+* The parser might not find an associated value for a flag that does require one.
+* The associated value might fail to parse.
+* The flag might be unknown.
+-}
+type FlagParserError
+    = FlagParserFoundValueOnToggle { knownFlags : KnownFlags, flagName : String }
+    | FlagParserMissingValue { knownFlags : KnownFlags, flagName : String }
+    | FlagParserInvalidValue { knownFlags : KnownFlags, flagName : String }
+    | FlagParserUnknownFlag { knownFlags : KnownFlags, flagName : String }
+
+
+{-| Returns a prettified error message for the given [FlagParserError](#FlagParserError).
+-}
+flagErrorPrettified : FlagParserError -> PP.Document
+flagErrorPrettified err =
+    when err is
+        FlagParserFoundValueOnToggle { knownFlags, flagName } ->
+            PP.verticalBlock
+                [ PP.words "This flag doesn't take a value:"
+                , PP.empty
+                , PP.text ("--" ++ flagName)
+                    |> PP.color PP.Red
+                    |> PP.indent
+                , PP.empty
+                , PP.words "Try removing the value."
+                , PP.empty
+                ]
+
+        FlagParserMissingValue { knownFlags, flagName } ->
+            PP.verticalBlock
+                [ PP.words "This flag needs more information:"
+                , PP.empty
+                , PP.text ("--" ++ flagName)
+                    |> PP.color PP.Red
+                    |> PP.indent
+                , describeFlagUse knownFlags flagName
+                ]
+        
+        FlagParserInvalidValue { knownFlags, flagName } ->
+            PP.verticalBlock
+                [ PP.words "This flag was passed an invalid value:"
+                , PP.empty
+                , PP.text ("--" ++ flagName)
+                    |> PP.color PP.Red
+                    |> PP.indent
+                , describeFlagUse knownFlags flagName
+                ]
+        
+        FlagParserUnknownFlag { knownFlags, flagName } ->
+            let
+                otherFlags =
+                    Dict.foldl
+                        (\name desc doc ->
+                            if desc.title == "" then
+                                Array.pushLast (PP.text <| "--" ++ name) doc
+
+                            else
+                                Array.pushLast 
+                                    (PP.text <| "--" ++ name ++ "=<" ++ desc.title ++ ">")
+                                    doc
+                        )
+                        []
+                        knownFlags
+
+                suffix =
+                    if Array.length otherFlags == 0 then
+                        PP.empty
+
+                    else
+                        PP.verticalBlock
+                            [ PP.empty
+                            , PP.words "Maybe you meant one of these?"
+                            , PP.empty
+                            , PP.verticalBlock otherFlags
+                                |> PP.indent
+                                |> PP.color PP.Green
+                            , PP.empty
+                            ]
+            in
+            PP.verticalBlock
+                [ PP.words "I don't recognize this flag:"
+                , PP.empty
+                , PP.text ("--" ++ flagName)
+                    |> PP.color PP.Red
+                    |> PP.indent
+                , suffix
+                ]
+
+
+describeFlagUse : KnownFlags -> String -> PP.Document
+describeFlagUse knownFlags flagName =
+    when Dict.get flagName knownFlags is
+        Just flagDescription ->
+            let
+                examples =
+                    flagDescription.examples
+                        |> Array.map (\exampleStr -> PP.text <| "--" ++ flagName ++ "=" ++ exampleStr)
+            in
+            PP.verticalBlock
+                [ PP.empty
+                , PP.block 
+                    [ PP.words ("It neeeds a")
+                    , PP.text (" <" ++ flagDescription.title ++ "> ")
+                        |> PP.color PP.Yellow
+                    , PP.words " like this:"
+                    ]
+                , PP.empty
+                , PP.verticalBlock examples
+                    |> PP.color PP.Green
+                    |> PP.indent
+                , PP.empty
+                ]
+
+        Nothing ->
+            PP.empty
+
+
+{-| A parser that verifies that no flags have been provided.
+-}
+noFlags : FlagParser {}
+noFlags =
+    initFlags {}
+
+
+{-| Defines an empty group of flags. You'll need to register flags using the
+[toggle](#toggle) and [flag](#flag) functions.
+-}
+initFlags : a -> FlagParser a
+initFlags value =
+    FlagParser 
+        { knownFlags = Dict.empty
+        , parseFn = \knownFlags remainingFlags -> 
+            when Dict.first remainingFlags is
+                Just unparsedFlag ->
+                    Err <| FlagParserUnknownFlag { knownFlags = knownFlags, flagName = unparsedFlag.key }
+
+                Nothing ->
+                    Ok value
+        }
+
+
+{-| Defines a flag that doesn't require an associated value. We're simply checking
+if the flag is present or not.
+-}
+toggle : String -> String -> FlagParser (Bool -> b) -> FlagParser b
+toggle key desc (FlagParser { knownFlags, parseFn = previousSteps }) =
+    let
+        descriptor =
+            { title = ""
+            , description = desc
+            , examples = []
+            }
+    in
+    FlagParser 
+        { knownFlags = Dict.set key descriptor knownFlags
+        , parseFn = \flagDescriptions opts ->
+            when previousSteps flagDescriptions (Dict.remove key opts) is
+                Ok next ->
+                    when Dict.get key opts is
+                        Just "" ->
+                            Ok (next True)
+
+                        Just _ ->
+                            Err <| FlagParserFoundValueOnToggle { knownFlags = flagDescriptions, flagName = key }
+
+                        Nothing ->
+                            Ok (next False)
+
+                Err err ->
+                    Err err
+        }
+
+
+{-| Defines a flag that requires an associated value.
+-}
+flag : String -> ValueParser a -> String -> FlagParser (Maybe a -> b) -> FlagParser b
+flag key valueParserFn desc (FlagParser { knownFlags, parseFn = previousSteps }) =
+    let
+        descriptor =
+            { title = valueParserFn.singular
+            , description = desc
+            , examples = valueParserFn.examples
+            }
+    in
+    FlagParser
+        { knownFlags = Dict.set key descriptor knownFlags
+        , parseFn = \flagDescriptions opts ->
+            when previousSteps flagDescriptions (Dict.remove key opts) is
+                Ok next ->
+                    when Dict.get key opts is
+                        Just "" ->
+                            Err <| FlagParserMissingValue { knownFlags = flagDescriptions, flagName = key }
+                    
+                        Just value ->
+                            when valueParserFn.fn value is
+                                Just parsedValue ->
+                                    Ok (next <| Just parsedValue)
+
+                                Nothing ->
+                                    Err <| FlagParserInvalidValue { knownFlags = flagDescriptions, flagName = key }
+
+                        Nothing ->
+                            Ok (next Nothing)
+
+                Err err ->
+                    Err err
+        }
+
+
+-- PARSERS
+
+
+{-| For `FileSystem.Path`, like `/some/path/file.txt`.
+
+Note: expects posix paths.
+-}
+pathParser : ValueParser Path
+pathParser =
+    { singular = "path"
+    , plural = "paths"
+    , fn = Just << Path.fromPosixString
+    , examples =
+        [ "folder"
+        , "folder/file.md"
+        ]
+    }
+
+
+{-| Like [pathParser](#pathParser), but verifies that the file extension is `.gren`.
+-}
+grenFileParser : ValueParser Path
+grenFileParser =
+    { singular = "gren-file"
+    , plural = "gren-files"
+    , fn = \input ->
+        pathParser.fn input
+            |> Maybe.andThen
+                (\path ->
+                    if path.extension /= "gren" then
+                        Nothing
+                
+                    else
+                        Just path
+                )
+    , examples =
+        [ "MyModule.gren"
+        , "src/Main.gren"
+        ]
+    }

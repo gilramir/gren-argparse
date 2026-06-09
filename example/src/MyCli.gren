@@ -1,0 +1,48 @@
+module MyCli exposing (Command(..), parser)
+
+import Cli.Parser
+import Cli.PrettyPrinter as PP
+
+
+type Command
+    = Greet { name : String, loud : Bool }
+
+
+parser : Cli.Parser.App Command
+parser =
+    { name = "mytool"
+    , version = "1.0.0"
+    , intro = PP.words "My example tool."
+    , outro = PP.empty
+    , commands =
+        Cli.Parser.defineGroup
+            |> Cli.Parser.withCommand
+                { word = "greet"
+                , arguments =
+                    Cli.Parser.oneArg nameParser
+                , flags =
+                    Cli.Parser.initFlags (\loud -> { loud = loud })
+                        |> Cli.Parser.toggle "loud" "Shout the greeting"
+                , commonDescription =
+                    Just "Greet someone by name."
+                , summary =
+                    "The `greet` command says hello:"
+                , example =
+                    PP.words "mytool greet World --loud"
+                , builder =
+                    \name flags ->
+                        Greet { name = name, loud = flags.loud }
+                }
+    }
+
+
+nameParser : Cli.Parser.ValueParser String
+nameParser =
+    { singular = "name"
+    , plural = "names"
+    , fn = Just
+    , examples =
+        [ "World"
+        , "Alice"
+        ]
+    }

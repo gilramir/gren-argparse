@@ -1,0 +1,350 @@
+module Cli.PrettyPrinter exposing
+    ( Document
+    --
+    , empty
+    , text
+    , words
+    , indent
+    , block
+    , verticalBlock
+    --
+    , Color(..)
+    , color
+    , intenseColor
+    , stripColor
+    --
+    , ToStringOptions
+    , defaultOptions
+    , toString
+    , toStringWithOptions
+    )
+
+
+{-| This module lets you define how text should be formatted before printing
+it to the terminal.
+
+@docs Document
+@docs empty, text, words, indent, block, verticalBlock
+@docs Color, color, intenseColor, stripColor
+@docs toString, ToStringOptions, defaultOptions, toStringWithOptions
+-}
+
+
+import Math
+
+
+{-| A `Document` represents formatted text.
+-}
+type Document
+    = Empty
+    | Text String
+    | Words (Array String)
+    | Colorized { color : Color, intense : Bool, document : Document }
+    | Indented Document
+    | Block (Array Document)
+    | VerticalBlock (Array Document)
+
+
+{-| The empty [Document](#Document) takes up no space. It's analogous to the
+empty `String`.
+-}
+empty : Document
+empty =
+    Empty
+
+
+{-| Turn a `String` into a [Document](#Document). Newlines are not respected,
+if you want to spread text over multiple lines, use [verticalBlock](#verticalBlock).
+
+Word boundaries are also not respected. If that's important to you, you might want
+to use [words](#words)
+-}
+text : String -> Document
+text str =
+    str
+        |> String.replace "\r" ""
+        |> String.replace "\n" " "
+        |> Text
+
+
+{-| Similar to [text](#text), but word boundaries are respected if the `String` has
+to be broken up over multiple lines. Whitespace between words are reduced to a single
+space.
+-}
+words : String -> Document
+words str =
+    Words <| String.words str
+
+
+{-| The contents of the [Document](#Document) is indented one level.
+-}
+indent : Document -> Document
+indent doc =
+    Indented doc
+
+
+{-| This joins multiple [Documents](#Document) into one. If possible, everything
+will be placed on a single line.
+-}
+block : Array Document -> Document
+block docs =
+    Block docs
+
+
+{-| Like [block](#block), but each [Document](#Document) is placed on a seperate line.
+-}
+verticalBlock : Array Document -> Document
+verticalBlock docs =
+    VerticalBlock docs
+
+
+-- COLORS
+
+
+{-| Supported text colors
+-}
+type Color
+    = Black
+    | Red
+    | Green
+    | Yellow 
+    | Blue
+    | Magenta
+    | Cyan
+    | White
+
+
+{-| Colorize the text in the given [Document](#Document).
+-}
+color : Color -> Document -> Document
+color clr doc =
+    Colorized
+        { color = clr
+        , intense = False
+        , document = doc
+        }
+
+
+{-| Like [color](#color), but intensifies the given color.
+-}
+intenseColor : Color -> Document -> Document
+intenseColor clr doc =
+    Colorized
+        { color = clr
+        , intense = True
+        , document = doc
+        }
+
+
+{-| This removes all colorized text in a [Document](#Document).
+-}
+stripColor : Document -> Document
+stripColor doc =
+    when doc is
+        Empty ->
+            doc
+            
+        Text _ ->
+            doc
+
+        Words _ ->
+            doc
+        
+        Colorized { document = colorizedDocument } ->
+            colorizedDocument
+        
+        Indented document ->
+            Indented <| stripColor document
+        
+        Block docs ->
+            Block <| Array.map stripColor docs
+                
+        VerticalBlock docs ->
+            VerticalBlock <| Array.map stripColor docs
+
+
+ansiColorCode : Color -> Bool -> String
+ansiColorCode clr intense =
+    let
+        baseValue =
+            when clr is
+                Black -> 30
+                Red -> 31
+                Green -> 32
+                Yellow -> 33
+                Blue -> 34
+                Magenta -> 35
+                Cyan -> 36
+                White -> 37
+
+        appliedIntensity =
+            if intense then
+                baseValue + 60
+
+            else
+                baseValue
+    in
+    String.fromInt appliedIntensity
+
+
+ansiColorEscapePrefix : String
+ansiColorEscapePrefix =
+    "\u{001b}["
+
+
+-- RUN
+
+
+{-| Convert a [Document](#Document) into a `String` that's ready to be written
+to the terminal.
+-}
+toString : Document -> String
+toString doc =
+    toStringWithOptions defaultOptions doc
+
+
+{-| Different settings when converting a [Document](#Document) into `String`.
+
+* `maxColumns` defines the maximum number of characters in a line.
+* `indentationSize` defines the number of spaces per indentation level.
+* `newlineSeparator` defines the `String` used for representing newlines.
+-}
+type alias ToStringOptions =
+    { maxColumns : Int
+    , indentationSize : Int
+    , newlineSeparator : String
+    }
+
+
+{-| A default set of options for converting [Document](#Document) into `String`.
+-}
+defaultOptions : ToStringOptions
+defaultOptions =
+    { maxColumns = Math.maxSafeInteger
+    , indentationSize = 4
+    , newlineSeparator = "\n"
+    }
+
+
+{-| Like [toString](#toString), but allows you to override the default options.
+-}
+toStringWithOptions : ToStringOptions -> Document -> String
+toStringWithOptions { maxColumns, indentationSize, newlineSeparator } doc =
+    toStringHelper 
+        "" 
+        (\currentIndent -> String.repeat indentationSize " " ++ currentIndent) 
+        maxColumns
+        newlineSeparator
+        doc
+
+
+toStringHelper : String -> (String -> String) -> Int -> String -> Document -> String
+toStringHelper indentPrefix nextIndent maxColumns newlineSeparator doc =
+    when doc is
+        Empty ->
+            ""
+            
+        Text str ->
+            let
+                indentedText =
+                    indentPrefix ++ str
+            in
+            if String.count indentedText > maxColumns then
+                indentedText
+                    |> splitByLength maxColumns
+                    |> String.join newlineSeparator
+
+            else
+                indentedText
+
+        Words parts ->
+            let
+                maxColumnsAfterIndent = 
+                    maxColumns - String.count indentPrefix
+                
+                wordSplitter =
+                    Array.foldl (addToWordSplitter maxColumnsAfterIndent) emptyWordSplitter parts
+            in
+            Array.pushLast wordSplitter.currentLine wordSplitter.lines
+                |> Array.map (\line -> indentPrefix ++ String.join " " line)
+                |> String.join newlineSeparator
+        
+        Colorized { color = clr, intense, document } ->
+            String.join "" <|
+                [ ansiColorEscapePrefix ++ ansiColorCode clr intense ++ "m"
+                , toStringHelper indentPrefix nextIndent maxColumns newlineSeparator document
+                , ansiColorEscapePrefix ++ "39m"
+                ]
+        
+        Indented document ->
+            toStringHelper (nextIndent indentPrefix) nextIndent maxColumns newlineSeparator document
+        
+        Block docs ->
+            when Array.popFirst docs is
+                Nothing ->
+                    ""
+
+                Just { first, rest } ->
+                    Array.pushFirst 
+                        (toStringHelper indentPrefix nextIndent maxColumns newlineSeparator first)
+                        (Array.map (toStringHelper "" identity maxColumns newlineSeparator) rest)
+                        |> String.join ""
+        
+        VerticalBlock docs ->
+            docs
+                |> Array.map (toStringHelper indentPrefix nextIndent maxColumns newlineSeparator)
+                |> String.join newlineSeparator
+
+
+splitByLength : Int -> String -> Array String
+splitByLength size str =
+    splitByLengthHelper size str []
+
+
+splitByLengthHelper : Int -> String -> Array String -> Array String
+splitByLengthHelper size str acc =
+    if str == "" then
+        acc
+
+    else
+        let
+            first = String.takeFirst size str
+            rest = String.dropFirst size str
+        in
+        splitByLengthHelper size rest (Array.pushLast first acc)
+
+
+type alias WordSplitter =
+    { currentLine : Array String
+    , lines : Array (Array String)
+    }
+
+
+emptyWordSplitter : WordSplitter
+emptyWordSplitter =
+    { currentLine = []
+    , lines = []
+    }
+
+
+addToWordSplitter : Int -> String -> WordSplitter -> WordSplitter
+addToWordSplitter maxWidth str { currentLine, lines } =
+    if currentLine == [] then
+        { currentLine = [ str ]
+        , lines = lines
+        }
+    else
+        let
+            currentWidth =
+                String.join " " currentLine
+                    |> String.count
+        in
+        if String.count str + currentWidth > maxWidth then
+            addToWordSplitter maxWidth str
+                { currentLine = []
+                , lines = Array.pushLast currentLine lines
+                }
+        else
+            { currentLine = Array.pushLast str currentLine
+            , lines = lines
+            }
