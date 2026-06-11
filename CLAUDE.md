@@ -74,8 +74,13 @@ matches on `CommandParseResult` directly.
    each combinator wraps the previous `parseFn` in a closure that either handles
    its own command word or delegates to the next. `withPrefix` nests a whole
    group under a word (e.g. `mytool package …`), giving `git`/`click`-style
-   subcommand trees. `--help` and `--version` are special-cased inside `run`,
-   not general flags.
+   subcommand trees. `--help` and `--version` are special-cased, not general
+   flags: `run` handles both as the first token; `runPrefix` handles `--help`
+   right after a prefix word (so `mytool package --help` lists the prefix's
+   commands rather than reporting `--help` as an unknown command); and
+   `runCommand` handles `--help` anywhere in a command's own tokens. `--version`
+   is only intercepted at the top level (`run`), since the version lives on the
+   `App`.
 
 2. **Arguments** (`ArgumentParser`). Each parser consumes the *entire*
    positional-args array at once and reports `usage` (a string for the help

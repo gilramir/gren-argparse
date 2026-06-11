@@ -508,6 +508,50 @@ tests =
                     |> Expect.equal
                         (Parser.BadArguments <| Parser.ArgumentParserWrongArity { expected = 1, actual = 0 })
             ]
+        , describe "withPrefix" <|
+            let
+                prefixedApp =
+                    { testApp
+                        | commands =
+                            Parser.defineGroup
+                                |> Parser.withPrefix "remote"
+                                    (Parser.defineGroup
+                                        |> Parser.withCommand (cmdBuilder testArgParser testFlags)
+                                    )
+                    }
+            in
+            [ test "A command under a prefix parses" <| \{} ->
+                when Parser.run [ "remote", "make", "src/Main.gren" ] prefixedApp is
+                    Parser.Success _ ->
+                        Expect.pass
+
+                    _ ->
+                        Expect.fail "Expected the prefixed command to parse"
+            , test "A bare prefix shows the prefix help" <| \{} ->
+                when Parser.run [ "remote" ] prefixedApp is
+                    Parser.HelpText _ ->
+                        Expect.pass
+
+                    _ ->
+                        Expect.fail "Expected prefix help text"
+            , test "`prefix --help` shows the prefix help, not an unknown command" <| \{} ->
+                when Parser.run [ "remote", "--help" ] prefixedApp is
+                    Parser.HelpText _ ->
+                        Expect.pass
+
+                    _ ->
+                        Expect.fail "Expected prefix help text"
+            , test "`prefix command --help` still shows that command's help" <| \{} ->
+                when Parser.run [ "remote", "make", "--help" ] prefixedApp is
+                    Parser.HelpText _ ->
+                        Expect.pass
+
+                    _ ->
+                        Expect.fail "Expected the command's help text"
+            , test "An unknown command under a prefix is reported" <| \{} ->
+                Parser.run [ "remote", "bogus" ] prefixedApp
+                    |> Expect.equal (Parser.UnknownCommand "bogus")
+            ]
         ]
 
 

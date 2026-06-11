@@ -248,7 +248,15 @@ runPrefix : String -> String -> Array String -> GroupParser result -> CommandPar
 runPrefix appName prefixName rawTokensAfterPrefix ((GroupParser { parseFn = parse }) as groupParser) =
     when Array.popFirst rawTokensAfterPrefix is
         Just { first = command, rest = rawTokens } ->
-            parse appName command rawTokens
+            when command is
+                -- `mytool prefix --help` lists the prefix's commands, the same
+                -- way the bare `mytool prefix` does. Without this, `--help`
+                -- would be treated as a command name and reported as unknown.
+                "--help" ->
+                    HelpText <| prefixHelpText appName prefixName groupParser
+
+                _ ->
+                    parse appName command rawTokens
 
         Nothing ->
             HelpText <| prefixHelpText appName prefixName groupParser

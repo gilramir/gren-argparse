@@ -10,7 +10,7 @@ commands, sitting alongside a top-level `status` command.
     ./run.sh remote remove origin
     ./run.sh remote list
     ./run.sh --help
-    ./run.sh remote          # lists the commands under the `remote` prefix
+    ./run.sh remote --help   # lists the commands under the `remote` prefix
 -}
 
 import Cli.Parser
