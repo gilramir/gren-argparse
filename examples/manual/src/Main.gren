@@ -104,8 +104,7 @@ greeting name loud =
 
 nameParser : Cli.Parser.ValueParser String
 nameParser =
-    { singular = "name"
-    , plural = "names"
+    { label = "name"
     , fn = Just
     , examples =
         [ "World"

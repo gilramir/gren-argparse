@@ -161,7 +161,7 @@ tests =
                         |> Expect.equal
                             (Parser.BadArguments <| Parser.ArgumentParserInvalidArgument
                                 { argument = "src/Dest"
-                                , title = Parser.grenFileParser.singular
+                                , title = Parser.grenFileParser.label
                                 , examples = Parser.grenFileParser.examples
                                 }
                             )
@@ -221,7 +221,7 @@ tests =
                         |> Expect.equal
                             (Parser.BadArguments <| Parser.ArgumentParserInvalidArgument
                                 { argument = "src/Dest"
-                                , title = Parser.grenFileParser.singular
+                                , title = Parser.grenFileParser.label
                                 , examples = Parser.grenFileParser.examples
                                 }
                             )
@@ -274,7 +274,7 @@ tests =
                         |> Expect.equal
                             (Parser.BadArguments <| Parser.ArgumentParserInvalidArgument
                                 { argument = "src/Main.gren src/Logic"
-                                , title = Parser.grenFileParser.plural
+                                , title = Parser.grenFileParser.label
                                 , examples = Parser.grenFileParser.examples
                                 }
                             )
@@ -319,7 +319,7 @@ tests =
                         |> Expect.equal
                             (Parser.BadArguments <| Parser.ArgumentParserInvalidArgument
                                 { argument = "src/Main"
-                                , title = Parser.grenFileParser.singular
+                                , title = Parser.grenFileParser.label
                                 , examples = Parser.grenFileParser.examples
                                 }
                             )

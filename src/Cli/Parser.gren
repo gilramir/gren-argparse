@@ -592,8 +592,7 @@ type ArgumentParser val
 the `String` representation of an argument into its final form.
 -}
 type alias ValueParser val =
-    { singular : String
-    , plural : String
+    { label : String
     , fn : (String -> Maybe val)
     , examples : Array String
     }
@@ -621,7 +620,7 @@ type alias PositionalHelp =
 
 positionalFromArg : Arg val -> PositionalHelp
 positionalFromArg arg =
-    { name = arg.value.singular
+    { name = arg.value.label
     , description = arg.help
     , examples = arg.value.examples
     }
@@ -697,7 +696,7 @@ noArgs =
 oneArg : Arg val -> ArgumentParser val
 oneArg arg =
     ArgumentParser
-        { usage = "<" ++ arg.value.singular ++ ">"
+        { usage = "<" ++ arg.value.label ++ ">"
         , positionals = [ positionalFromArg arg ]
         , parseFn = \args ->
             when args is
@@ -708,7 +707,7 @@ oneArg arg =
                             (Err <|
                                 ArgumentParserInvalidArgument
                                     { argument = value
-                                    , title = arg.value.singular
+                                    , title = arg.value.label
                                     , examples = arg.value.examples
                                     }
                             )
@@ -723,7 +722,7 @@ oneArg arg =
 twoArgs : (a -> b -> c) -> Arg a -> Arg b -> ArgumentParser c
 twoArgs combine firstArg secondArg =
     ArgumentParser
-        { usage = "<" ++ firstArg.value.singular ++ "> <" ++ secondArg.value.singular ++ ">"
+        { usage = "<" ++ firstArg.value.label ++ "> <" ++ secondArg.value.label ++ ">"
         , positionals = [ positionalFromArg firstArg, positionalFromArg secondArg ]
         , parseFn = \args ->
             when args is
@@ -735,14 +734,14 @@ twoArgs combine firstArg secondArg =
                         { first = Nothing } ->
                             Err <| ArgumentParserInvalidArgument
                                 { argument = first
-                                , title = firstArg.value.singular
+                                , title = firstArg.value.label
                                 , examples = firstArg.value.examples
                                 }
 
                         { second = Nothing } ->
                             Err <| ArgumentParserInvalidArgument
                                 { argument = second
-                                , title = secondArg.value.singular
+                                , title = secondArg.value.label
                                 , examples = secondArg.value.examples
                                 }
 
@@ -756,7 +755,7 @@ twoArgs combine firstArg secondArg =
 threeArgs : (a -> b -> c -> d) -> Arg a -> Arg b -> Arg c -> ArgumentParser d
 threeArgs combine firstArg secondArg thirdArg =
     ArgumentParser
-        { usage = "<" ++ String.join "> <" [firstArg.value.singular, secondArg.value.singular, thirdArg.value.singular] ++ ">"
+        { usage = "<" ++ String.join "> <" [firstArg.value.label, secondArg.value.label, thirdArg.value.label] ++ ">"
         , positionals = [ positionalFromArg firstArg, positionalFromArg secondArg, positionalFromArg thirdArg ]
         , parseFn = \args ->
             when args is
@@ -768,21 +767,21 @@ threeArgs combine firstArg secondArg thirdArg =
                         { first = Nothing } ->
                             Err <| ArgumentParserInvalidArgument
                                 { argument = first
-                                , title = firstArg.value.singular
+                                , title = firstArg.value.label
                                 , examples = firstArg.value.examples
                                 }
 
                         { second = Nothing } ->
                             Err <| ArgumentParserInvalidArgument
                                 { argument = second
-                                , title = secondArg.value.singular
+                                , title = secondArg.value.label
                                 , examples = secondArg.value.examples
                                 }
 
                         { third = Nothing } ->
                             Err <| ArgumentParserInvalidArgument
                                 { argument = third
-                                , title = thirdArg.value.singular
+                                , title = thirdArg.value.label
                                 , examples = thirdArg.value.examples
                                 }
 
@@ -796,9 +795,9 @@ threeArgs combine firstArg secondArg thirdArg =
 zeroOrMoreArgs : Arg val -> ArgumentParser (Array val)
 zeroOrMoreArgs arg =
     ArgumentParser
-        { usage = arg.value.plural
+        { usage = arg.value.label
         , positionals =
-            [ { name = arg.value.plural
+            [ { name = arg.value.label
               , description = arg.help
               , examples = arg.value.examples
               }
@@ -811,7 +810,7 @@ zeroOrMoreArgs arg =
             if Array.length args /= Array.length parsedArgs then
                 Err <| ArgumentParserInvalidArgument
                     { argument = String.join " " args
-                    , title = arg.value.plural
+                    , title = arg.value.label
                     , examples = arg.value.examples
                     }
 
@@ -826,9 +825,9 @@ zeroOrMoreArgs arg =
 oneOrMoreArgs : Arg val -> ArgumentParser (Array val)
 oneOrMoreArgs arg =
     ArgumentParser
-        { usage = arg.value.plural
+        { usage = arg.value.label
         , positionals =
-            [ { name = arg.value.plural
+            [ { name = arg.value.label
               , description = arg.help
               , examples = arg.value.examples
               }
@@ -845,7 +844,7 @@ oneOrMoreArgs arg =
                 if Array.length args /= Array.length parsedArgs then
                     Err <| ArgumentParserInvalidArgument
                         { argument = String.join " " args
-                        , title = arg.value.plural
+                        , title = arg.value.label
                         , examples = arg.value.examples
                         }
 
@@ -860,7 +859,7 @@ one yields `Just` the parsed value, and anything more is an error.
 optionalArg : Arg val -> ArgumentParser (Maybe val)
 optionalArg arg =
     ArgumentParser
-        { usage = "[<" ++ arg.value.singular ++ ">]"
+        { usage = "[<" ++ arg.value.label ++ ">]"
         , positionals = [ positionalFromArg arg ]
         , parseFn = \args ->
             when args is
@@ -875,7 +874,7 @@ optionalArg arg =
                         Nothing ->
                             Err <| ArgumentParserInvalidArgument
                                 { argument = value
-                                , title = arg.value.singular
+                                , title = arg.value.label
                                 , examples = arg.value.examples
                                 }
 
@@ -1180,7 +1179,7 @@ flag key valueParserFn desc (FlagParser { knownFlags, parseFn = previousSteps })
         descriptor =
             { kind =
                 TakesValue
-                    { title = valueParserFn.singular
+                    { title = valueParserFn.label
                     , examples = valueParserFn.examples
                     }
             , description = desc
@@ -1220,8 +1219,7 @@ Note: expects posix paths.
 -}
 pathParser : ValueParser Path
 pathParser =
-    { singular = "path"
-    , plural = "paths"
+    { label = "path"
     , fn = Just << Path.fromPosixString
     , examples =
         [ "folder"
@@ -1234,8 +1232,7 @@ pathParser =
 -}
 grenFileParser : ValueParser Path
 grenFileParser =
-    { singular = "gren-file"
-    , plural = "gren-files"
+    { label = "gren-file"
     , fn = \input ->
         pathParser.fn input
             |> Maybe.andThen

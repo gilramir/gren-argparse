@@ -125,7 +125,7 @@ matches on `CommandParseResult` directly.
 
 A `Command` ties these together with a `builder : args -> flags -> result` that
 bridges parsed input into the user's own command sum type. A `ValueParser`
-(`{ singular, plural, fn : String -> Maybe val, examples }`) is the unit of type
+(`{ label, fn : String -> Maybe val, examples }`) is the unit of type
 conversion and powers both arguments and value flags; built-ins are
 `pathParser` and `grenFileParser`.
 

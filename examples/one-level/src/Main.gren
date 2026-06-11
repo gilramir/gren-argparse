@@ -89,8 +89,7 @@ main =
 
 textParser : Cli.Parser.ValueParser String
 textParser =
-    { singular = "text"
-    , plural = "texts"
+    { label = "text"
     , fn = Just
     , examples =
         [ "buy milk"
