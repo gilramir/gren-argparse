@@ -1,0 +1,86 @@
+module MainContext exposing (main)
+
+{-| Demonstrates `Cli.Program.runWithContext`: a command handler that needs a
+`FileSystem.Permission`, acquired up front in the initialization phase and
+threaded through as the program's *context*.
+
+The `count` command reads a file and reports its size in bytes.
+
+Build with: gren make src/MainContext.gren --output=app
+Run with:   node app count gren.json
+-}
+
+import Bytes
+import Cli.Parser
+import Cli.PrettyPrinter as PP
+import Cli.Program
+import FileSystem
+import FileSystem.Path as Path exposing (Path)
+import Init
+import Node
+import Stream.Log
+import Task
+
+
+type Command
+    = Count { path : Path }
+
+
+type alias Context =
+    { fs : FileSystem.Permission }
+
+
+parser : Cli.Parser.App Command
+parser =
+    { name = "filetool"
+    , version = "1.0.0"
+    , intro = PP.words "A tool that touches the filesystem."
+    , outro = PP.empty
+    , commands =
+        Cli.Parser.defineGroup
+            |> Cli.Parser.withCommand
+                { word = "count"
+                , arguments =
+                    Cli.Parser.oneArg
+                        { value = Cli.Parser.pathParser
+                        , help = "The file to measure"
+                        }
+                , flags =
+                    Cli.Parser.noFlags
+                , commonDescription =
+                    Just "Report a file's size in bytes."
+                , summary =
+                    "The `count` command measures a file:"
+                , example =
+                    PP.words "filetool count gren.json"
+                , builder =
+                    \path _flags ->
+                        Count { path = path }
+                }
+    }
+
+
+main : Node.SimpleProgram a
+main =
+    Cli.Program.runWithContext
+        { parser = parser
+        , init =
+            \_env toProgram ->
+                Init.await FileSystem.initialize <| \fsPermission ->
+                    toProgram { fs = fsPermission }
+        , onCommand =
+            \env context command ->
+                when command is
+                    Count { path } ->
+                        FileSystem.readFile context.fs path
+                            |> Task.mapError FileSystem.errorToString
+                            |> Task.andThen
+                                (\contents ->
+                                    Stream.Log.line env.stdout
+                                        (Path.toPosixString path
+                                            ++ ": "
+                                            ++ String.fromInt (Bytes.length contents)
+                                            ++ " bytes"
+                                        )
+                                )
+        }

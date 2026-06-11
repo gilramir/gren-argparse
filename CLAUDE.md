@@ -41,9 +41,11 @@ Validation is done by compiling and by the test suite.
   path form (`<module-names>` error) and wants the bare module name.
   Use `--output=app` (an executable). `--output=app.js` produces a *library
   module* that exports `Main.init` without calling it, so it runs and prints
-  nothing. `example/src/Main.gren` uses the `Cli.Program` convenience runner;
-  `example/src/MainManual.gren` shows the same tool wired up by hand with
-  `Cli.Parser.run` for full control.
+  nothing. `example/src/Main.gren` uses the `Cli.Program.run` convenience
+  runner; `example/src/MainManual.gren` shows the same tool wired up by hand
+  with `Cli.Parser.run` for full control; `example/src/MainContext.gren`
+  (build/run it as `MainContext`) demonstrates `Cli.Program.runWithContext`, a
+  `count <file>` command that acquires a `FileSystem.Permission` up front.
 
 ## Architecture
 
@@ -53,8 +55,12 @@ of five `CommandParseResult` constructors (`UnknownCommand`, `BadFlags`,
 `BadArguments`, `HelpText`, `Success a`); the caller decides what to print and
 which exit code to use. `Cli.Program.run` is the opinionated wrapper that does
 the obvious thing (errors → stderr + exit 1, help → stdout, success → your
-handler); anything needing custom exit codes or extra permissions skips it and
-matches on `CommandParseResult` directly.
+handler). `Cli.Program.runWithContext` is the same, but lets the caller run
+their own `Init.await` chain first (to acquire `FileSystem`/terminal/etc.
+permissions) and threads the resulting *context* into the handler — `run` is
+just `runWithContext` with an empty context. Anything needing custom exit codes
+or its own model/update loop skips both and matches on `CommandParseResult`
+directly.
 
 ### Three layers, composed by the user
 

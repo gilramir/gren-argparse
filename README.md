@@ -83,10 +83,18 @@ main =
 stderr and the program exits `1` — the same treatment parse errors get. See
 `example/src/Main.gren`.
 
+**`Cli.Program.runWithContext` (run + permissions).** Like `run`, but with a
+chance to initialize subsystems and acquire permissions
+(`FileSystem.Permission`, terminal, child processes, …) before any command
+runs — these can only be obtained in a program's initialization phase, which
+`run` doesn't expose. Your `init` is handed the environment and a continuation;
+`Init.await` whatever you need, then call the continuation with a *context*
+value that is passed to every `onCommand`. See `example/src/MainContext.gren`.
+
 **`Cli.Parser.run` (full control).** Call the pure parser yourself and handle
 each `CommandParseResult` constructor by hand (the `argv → result → dispatch`
-flow above) — use this when you need a custom exit code, filesystem/other
-permissions, or your own model/update loop. See `example/src/MainManual.gren`.
+flow above) — use this when you need a custom exit code or your own
+model/update loop. See `example/src/MainManual.gren`.
 
 ## Example
 
@@ -94,13 +102,27 @@ See `example/`. Build it as an **executable** and run it:
 
 ```bash
 cd example
-gren make src/Main.gren --output=app   # NOT --output=app.js
+gren make Main --output=app      # NOT --output=app.js
 node app greet World --loud      # HELLO, WORLD!
 node app greet World             # Hello, World.
 node app --help
 node app greet --help
 node app --version
 ```
+
+`src/Main.gren` uses the `Cli.Program.run` convenience runner;
+`src/MainManual.gren` wires the same tool up by hand with `Cli.Parser.run`; and
+`src/MainContext.gren` shows `Cli.Program.runWithContext`, a `count <file>`
+command that acquires a `FileSystem.Permission` before reading the file:
+
+```bash
+gren make MainContext --output=app
+node app count gren.json          # gren.json: 379 bytes
+```
+
+> Pass the **module name** `Main`, not the file path `src/Main.gren`. Despite
+> what `gren make --help` shows, gren 0.6.5 rejects the path form with a
+> `<module-names>` error.
 
 > Build with `--output=app` (an executable), not `--output=app.js`. A `.js`
 > output is a *library module* that exports `Main.init` without calling it, so

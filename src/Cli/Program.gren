@@ -1,4 +1,4 @@
-module Cli.Program exposing ( run )
+module Cli.Program exposing ( run, runWithContext )
 
 {-| A convenience wrapper that turns a [Cli.Parser.App](Cli.Parser#App) into a
 ready-to-run Node program, handling the boilerplate most command-line tools
@@ -11,15 +11,21 @@ want:
 * a successfully parsed command is handed to your `onCommand` function
 
 This is opinionated on purpose. Programs that need finer control — a custom
-exit code, filesystem or other permissions, or a full model/update loop —
-should skip this module and call [Cli.Parser.run](Cli.Parser#run) directly
-inside their own `Node` program. See `example/src/MainManual.gren`.
+exit code, or a full model/update loop — should skip this module and call
+[Cli.Parser.run](Cli.Parser#run) directly inside their own `Node` program. See
+`example/src/MainManual.gren`.
 
-@docs run
+If all you need is access to subsystem permissions (filesystem, terminal, child
+processes, …), you don't have to drop down that far: use
+[runWithContext](#runWithContext), which lets you run your own initialization
+before the command handler while keeping all of the boilerplate above.
+
+@docs run, runWithContext
 -}
 
 import Cli.Parser
 import Cli.PrettyPrinter as PP
+import Init
 import Node
 import Stream.Log
 import Task exposing (Task)
@@ -49,26 +55,79 @@ run :
     }
     -> Node.SimpleProgram a
 run { parser, onCommand } =
+    runWithContext
+        { parser = parser
+        , init = \_env toProgram -> toProgram {}
+        , onCommand = \env _context cmd -> onCommand env cmd
+        }
+
+
+{-| Like [run](#run), but with a chance to initialize subsystems and acquire
+permissions before any command runs. Use this when your command handler needs a
+`FileSystem.Permission`, a `Terminal` configuration, child-process access, and
+so on — these can only be obtained during a program's initialization phase,
+which `run` doesn't expose.
+
+`init` is given the [Node.Environment](Node#Environment) and a continuation
+(`toProgram`). Acquire whatever you need with `Init.await`, then call
+`toProgram` with a *context* value of your choosing; that same value is later
+handed to every `onCommand` invocation.
+
+    import FileSystem
+    import Init
+
+    type alias Context =
+        { fs : FileSystem.Permission }
+
+    main : Node.SimpleProgram a
+    main =
+        Cli.Program.runWithContext
+            { parser = MyCli.parser
+            , init =
+                \_env toProgram ->
+                    Init.await FileSystem.initialize <| \fsPermission ->
+                        toProgram { fs = fsPermission }
+            , onCommand =
+                \env context command ->
+                    when command is
+                        MyCli.Build { path } ->
+                            FileSystem.readFile context.fs path
+                                |> Task.mapError FileSystem.errorToString
+                                |> Task.andThen (\contents -> Stream.Log.line env.stdout contents)
+            }
+
+Parse errors, `--help`/`--version`, and exit codes are handled exactly as in
+[run](#run). The `context` is acquired up front, so it is available even on the
+help/error paths; that's harmless, since acquiring a permission performs no I/O.
+-}
+runWithContext :
+    { parser : Cli.Parser.App cmd
+    , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task (Cmd a)
+    , onCommand : Node.Environment -> context -> cmd -> Task String {}
+    }
+    -> Node.SimpleProgram a
+runWithContext { parser, init, onCommand } =
     Node.defineSimpleProgram <| \env ->
-        let
-            failWith doc =
-                Stream.Log.line env.stderr (PP.toString doc)
-                    |> Task.andThen (\_ -> Node.setExitCode 1)
-        in
-        Node.endSimpleProgram <|
-            when Cli.Parser.run (Array.dropFirst 2 env.args) parser is
-                Cli.Parser.UnknownCommand name ->
-                    failWith (PP.text ("I don't recognize this command: " ++ name))
+        init env <| \context ->
+            let
+                failWith doc =
+                    Stream.Log.line env.stderr (PP.toString doc)
+                        |> Task.andThen (\_ -> Node.setExitCode 1)
+            in
+            Node.endSimpleProgram <|
+                when Cli.Parser.run (Array.dropFirst 2 env.args) parser is
+                    Cli.Parser.UnknownCommand name ->
+                        failWith (PP.text ("I don't recognize this command: " ++ name))
 
-                Cli.Parser.BadFlags err ->
-                    failWith (Cli.Parser.flagErrorPrettified err)
+                    Cli.Parser.BadFlags err ->
+                        failWith (Cli.Parser.flagErrorPrettified err)
 
-                Cli.Parser.BadArguments err ->
-                    failWith (Cli.Parser.argumentErrorPrettified err)
+                    Cli.Parser.BadArguments err ->
+                        failWith (Cli.Parser.argumentErrorPrettified err)
 
-                Cli.Parser.HelpText doc ->
-                    Stream.Log.line env.stdout (PP.toString doc)
+                    Cli.Parser.HelpText doc ->
+                        Stream.Log.line env.stdout (PP.toString doc)
 
-                Cli.Parser.Success cmd ->
-                    onCommand env cmd
-                        |> Task.onError (\msg -> failWith (PP.text msg))
+                    Cli.Parser.Success cmd ->
+                        onCommand env context cmd
+                            |> Task.onError (\msg -> failWith (PP.text msg))

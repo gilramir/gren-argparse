@@ -2,3 +2,4 @@
 gren_packages/
 app
 *.js
+docs.json
