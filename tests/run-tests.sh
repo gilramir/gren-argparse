@@ -3,4 +3,4 @@
 set -e
 
 gren make Main --output=app
-node app
+node app "$@"

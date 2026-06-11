@@ -1,4 +1,4 @@
-module Cli.Program exposing ( run, runWithContext )
+module Cli.Program exposing ( run, runWithContext, runRoot )
 
 {-| A convenience wrapper that turns a [Cli.Parser.App](Cli.Parser#App) into a
 ready-to-run Node program, handling the boilerplate most command-line tools
@@ -20,7 +20,7 @@ processes, …), you don't have to drop down that far: use
 [runWithContext](#runWithContext), which lets you run your own initialization
 before the command handler while keeping all of the boilerplate above.
 
-@docs run, runWithContext
+@docs run, runWithContext, runRoot
 -}
 
 import Cli.Parser
@@ -131,3 +131,65 @@ runWithContext { parser, init, onCommand } =
                     Cli.Parser.Success cmd ->
                         onCommand env context cmd
                             |> Task.onError (\msg -> failWith (PP.text msg))
+
+
+{-| Build a `Node` program from a *single* command, with no sub-command word —
+for tools that are just flags and arguments, like `mytool --loud World`. This
+is the [Cli.Parser.runCommand](Cli.Parser#runCommand) counterpart to
+[run](#run), and handles the same boilerplate (parse errors → stderr + exit 1,
+`--help`/`--version` → stdout, success → your handler).
+
+    main : Node.SimpleProgram a
+    main =
+        Cli.Program.runRoot
+            { name = "greet"
+            , version = "1.0.0"
+            , command = MyCli.greetCommand
+            , onCommand =
+                \env (MyCli.Greet { name, loud }) ->
+                    Stream.Log.line env.stdout (greeting name loud)
+            }
+
+`name` and `version` drive the `--help` usage line and `--version` output. The
+command's own `word` is ignored (the help line reads `name <args>`), so you can
+leave it empty.
+-}
+runRoot :
+    { name : String
+    , version : String
+    , command : Cli.Parser.Command args flags cmd
+    , onCommand : Node.Environment -> cmd -> Task String {}
+    }
+    -> Node.SimpleProgram a
+runRoot { name, version, command, onCommand } =
+    Node.defineSimpleProgram <| \env ->
+        let
+            args =
+                Array.dropFirst 2 env.args
+
+            failWith doc =
+                Stream.Log.line env.stderr (PP.toString doc)
+                    |> Task.andThen (\_ -> Node.setExitCode 1)
+        in
+        Node.endSimpleProgram <|
+            when Array.first args is
+                Just "--version" ->
+                    Stream.Log.line env.stdout version
+
+                _ ->
+                    when Cli.Parser.runCommand name args { command | word = "" } is
+                        Cli.Parser.UnknownCommand cmdName ->
+                            failWith (PP.text ("I don't recognize this command: " ++ cmdName))
+
+                        Cli.Parser.BadFlags err ->
+                            failWith (Cli.Parser.flagErrorPrettified err)
+
+                        Cli.Parser.BadArguments err ->
+                            failWith (Cli.Parser.argumentErrorPrettified err)
+
+                        Cli.Parser.HelpText doc ->
+                            Stream.Log.line env.stdout (PP.toString doc)
+
+                        Cli.Parser.Success cmd ->
+                            onCommand env cmd
+                                |> Task.onError (\msg -> failWith (PP.text msg))

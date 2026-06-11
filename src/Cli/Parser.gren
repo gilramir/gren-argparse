@@ -2,6 +2,7 @@ module Cli.Parser exposing
     ( App
     , CommandParseResult(..)
     , run
+    , runCommand
     --
     , GroupParser
     , defineGroup
@@ -52,7 +53,7 @@ Into a data structure.
 
 ## Application
 
-@docs App, run
+@docs App, run, runCommand
 
 ## Groups
 
@@ -440,6 +441,18 @@ parseRawTokens knownFlags tokens =
     stepNext tokens { flags = Dict.empty, args = [] }
 
 
+{-| Parses tokens against a *single* [Command](#Command), without first
+consuming a command word. Use this to build a tool that has no sub-commands —
+just flags and arguments, like `mytool --loud World` — where [run](#run) would
+otherwise treat the first token (`--loud`) as a command name.
+
+`appName` is only used to render the usage line in `--help` output. The command
+word in `--help` comes from `spec.word`; pass an empty `word` for a rootless
+tool so the usage line reads `mytool <args>`. `--help` is handled here (it
+yields [HelpText](#CommandParseResult)); `--version`, being application-level,
+is not — intercept it yourself, as [Cli.Program.runRoot](Cli.Program#runRoot)
+does.
+-}
 runCommand : String -> Array String -> Command args flags result -> CommandParseResult result
 runCommand appName rawTokens spec =
     let

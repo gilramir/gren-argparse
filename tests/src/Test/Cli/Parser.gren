@@ -477,6 +477,37 @@ tests =
                     _ ->
                         Expect.fail "Expected help text"
             ]
+        , describe "runCommand (no command word)" <|
+            let
+                oneArgCmd =
+                    cmdBuilder (Parser.oneArg (arg Parser.grenFileParser)) testFlags
+            in
+            [ test "Parses flags and args directly, with no leading command word" <| \{} ->
+                when Parser.runCommand "mytool" [ "--debug", "--output=out", "src/Main.gren" ] testCmd is
+                    Parser.Success result ->
+                        Expect.equal
+                            { args = [ Path.fromPosixString "src/Main.gren" ]
+                            , flags = { debug = True, output = Just (Path.fromPosixString "out") }
+                            }
+                            result
+
+                    _ ->
+                        Expect.fail "Expected a successful parse"
+            , test "--help yields HelpText" <| \{} ->
+                when Parser.runCommand "mytool" [ "--help" ] testCmd is
+                    Parser.HelpText _ ->
+                        Expect.pass
+
+                    _ ->
+                        Expect.fail "Expected help text"
+            , test "An unknown flag is a flag error" <| \{} ->
+                Parser.runCommand "mytool" [ "--hiya" ] testCmd
+                    |> expectBadFlag (Parser.FlagParserUnknownFlag { knownFlags = Dict.empty, flagName = "hiya" })
+            , test "A missing required argument is an argument error" <| \{} ->
+                Parser.runCommand "mytool" [] oneArgCmd
+                    |> Expect.equal
+                        (Parser.BadArguments <| Parser.ArgumentParserWrongArity { expected = 1, actual = 0 })
+            ]
         ]
 
 
