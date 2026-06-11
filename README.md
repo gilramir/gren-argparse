@@ -76,12 +76,21 @@ main =
                 when command is
                     MyCli.Greet { name } ->
                         Stream.Log.line env.stdout ("Hello, " ++ name)
+                            |> Task.map (\_ -> Cli.Program.Succeeded)
         }
 ```
 
-`onCommand` returns a `Task String {}`; if it fails, the `String` is printed to
-stderr and the program exits `1` — the same treatment parse errors get. See
-`examples/one-level/`.
+`onCommand` returns a `Task String Outcome` — you never call
+`Node.setExitCode`. There are three results, mirroring how Unix tools behave:
+
+| Handler returns | Exit code | Output |
+| --- | --- | --- |
+| `Task.succeed Cli.Program.Succeeded` | `0` | whatever you printed |
+| `Task.succeed Cli.Program.Failed` | `1` | nothing extra — for "ran fine, but the answer is no" (a failed check, no matches), where you've already printed your own report |
+| `Task.fail "message"` | `1` | `message` on stderr — for a genuine error with a diagnostic to show |
+
+See `examples/one-level/` for the common path and `examples/with-permissions/`
+for all three. The full walkthrough is in [GUIDE.md](GUIDE.md).
 
 **`Cli.Program.runRoot` (no sub-commands).** For a tool that is just flags and
 arguments, with no command word — `mytool --loud World`. You give it a single
@@ -113,7 +122,7 @@ try any example with `./run.sh <args>`:
 | `one-level/` | `Cli.Program.run` + `withCommand` | `./run.sh add "buy milk"` |
 | `two-level/` | `withPrefix` — nested sub-commands | `./run.sh remote add origin` |
 | `manual/` | `Cli.Parser.run` by hand, with a custom exit code | `./run.sh greet World --loud` |
-| `with-permissions/` | `Cli.Program.runWithContext` — a `FileSystem.Permission` | `./run.sh count gren.json` |
+| `with-permissions/` | `runWithContext` — a `FileSystem.Permission`, plus all three exit outcomes | `./run.sh count gren.json` |
 
 ```bash
 cd examples/one-level

@@ -14,6 +14,7 @@ import Cli.PrettyPrinter as PP
 import Cli.Program
 import Node
 import Stream.Log
+import Task
 
 
 type Command
@@ -74,13 +75,15 @@ main =
         { parser = parser
         , onCommand =
             \env cmd ->
-                when cmd is
+                (when cmd is
                     Add { text, done } ->
                         Stream.Log.line env.stdout
                             ((if done then "Added (done): " else "Added: ") ++ text)
 
                     List ->
                         Stream.Log.line env.stdout "(this demo keeps no state, so the list is always empty)"
+                )
+                    |> Task.map (\_ -> Cli.Program.Succeeded)
         }
 
 

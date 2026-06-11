@@ -4,9 +4,20 @@ module Main exposing (main)
 `FileSystem.Permission`, acquired up front in the initialization phase and
 threaded through as the program's *context*.
 
-The `count` command reads a file and reports its size in bytes.
+The `count` command reads a file and reports its size in bytes. It also shows
+off the two ways `Cli.Program` lets a handler signal failure:
 
-    ./run.sh count gren.json
+  - a **missing** file fails the task, so its error message goes to stderr and
+    the program exits `1`;
+  - an **empty** file is treated as a failed check — the handler returns
+    `Cli.Program.Failed`, which exits `1` after printing its own note (no
+    diagnostic from the runner).
+
+A non-empty file exits `0` via `Cli.Program.Succeeded`.
+
+    ./run.sh count gren.json        # prints the size, exits 0
+    ./run.sh count /no/such/file    # stderr error, exits 1
+    ./run.sh count /dev/null        # "empty file", exits 1
     ./run.sh --help
 -}
 
@@ -73,14 +84,26 @@ main =
                 when command is
                     Count { path } ->
                         FileSystem.readFile context.fs path
+                            -- A read error (e.g. no such file) fails the task,
+                            -- so the runner prints this to stderr and exits 1.
                             |> Task.mapError FileSystem.errorToString
                             |> Task.andThen
                                 (\contents ->
-                                    Stream.Log.line env.stdout
-                                        (Path.toPosixString path
-                                            ++ ": "
-                                            ++ String.fromInt (Bytes.length contents)
-                                            ++ " bytes"
-                                        )
+                                    if Bytes.length contents == 0 then
+                                        -- Ran fine, but the answer is "no": a
+                                        -- failed check. Print our own note and
+                                        -- exit 1 with no extra diagnostic.
+                                        Stream.Log.line env.stderr
+                                            (Path.toPosixString path ++ " is empty")
+                                            |> Task.map (\_ -> Cli.Program.Failed)
+
+                                    else
+                                        Stream.Log.line env.stdout
+                                            (Path.toPosixString path
+                                                ++ ": "
+                                                ++ String.fromInt (Bytes.length contents)
+                                                ++ " bytes"
+                                            )
+                                            |> Task.map (\_ -> Cli.Program.Succeeded)
                                 )
         }

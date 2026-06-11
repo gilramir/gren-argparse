@@ -28,6 +28,11 @@ Validation is done by compiling and by the test suite.
   covers the `Document` renderer. Uses `gren-lang/test` +
   `gren-lang/test-runner-node`. The build artifact (`tests/app`) and
   `tests/gren_packages/` are gitignored.
+- **Exit-code integration test:** `tests/exit-codes.sh`. `Cli.Program` does I/O
+  and sets the process exit code, so it can't be covered by the pure test
+  suite; this script runs the `with-permissions` example and asserts the exit
+  code + stream (stdout/stderr) for each `Outcome` path (`Succeeded` → 0,
+  `Failed` → 1 silent, task failure → 1 on stderr).
 - **Build and run an example.** `examples/` holds one self-contained `node`
   app per scenario, each depending on the package via
   `"youruser/cli": "local:../../"` and carrying its own `run.sh` (the same
@@ -42,7 +47,9 @@ Validation is done by compiling and by the test suite.
   (`Cli.Program.run` + `withCommand`), `two-level/` (`withPrefix`, nested
   sub-commands), `manual/` (`Cli.Parser.run` by hand, custom exit code), and
   `with-permissions/` (`Cli.Program.runWithContext`, a `count <file>` command
-  acquiring a `FileSystem.Permission`). Each `run.sh` builds the **module
+  acquiring a `FileSystem.Permission`; also exercises all three `Outcome` exit
+  paths — non-empty file → 0, empty file → `Failed`/1, missing file → task
+  error/1). Each `run.sh` builds the **module
   name** `Main` (not the path `src/Main.gren`: gren 0.6.5 rejects the path form
   with a `<module-names>` error) into an **executable** `app` (not `app.js`,
   which is a *library module* that exports `Main.init` without calling it, so it
@@ -57,7 +64,13 @@ of five `CommandParseResult` constructors (`UnknownCommand`, `BadFlags`,
 `BadArguments`, `HelpText`, `Success a`); the caller decides what to print and
 which exit code to use. `Cli.Program.run` is the opinionated wrapper that does
 the obvious thing (errors → stderr + exit 1, help → stdout, success → your
-handler). `Cli.Program.runWithContext` is the same, but lets the caller run
+handler). The handler returns a `Task String Cli.Program.Outcome`: succeeding
+with `Succeeded` exits 0, succeeding with `Failed` exits 1 *silently* (a failed
+check — you printed your own report), and failing the task prints the `String`
+to stderr and exits 1. The handler never calls `Node.setExitCode`; that mapping
+lives in `applyOutcome`. `Cli.Program` only ever exits 0 or 1 — needing another
+code (e.g. 2) means dropping to `Cli.Parser.run` (see `examples/manual/`).
+`Cli.Program.runWithContext` is the same, but lets the caller run
 their own `Init.await` chain first (to acquire `FileSystem`/terminal/etc.
 permissions) and threads the resulting *context* into the handler — `run` is
 just `runWithContext` with an empty context. `Cli.Program.runRoot` is the
@@ -139,8 +152,7 @@ return `Document`s, keeping output formatting separate from I/O.
 - `semanticVersionParser` / `packageNameParser` were intentionally removed from
   the original compiler version to avoid a `gren-lang/compiler-common`
   dependency; re-add them only if building Gren-specific tooling.
-- `differences.md` is a detailed comparison against Python `argparse` and the
-  authoritative inventory of intentionally-missing features (short flags,
-  count/append, mutually-exclusive groups, required options, mixed arity).
-  Consult it before "adding a missing feature" — many gaps are deliberate or
-  have documented workarounds.
+- Several features are **intentionally missing** vs. Python `argparse` (short
+  flags, count/append, mutually-exclusive groups, required options, mixed
+  arity). Before "adding a missing feature," check whether the gap is deliberate
+  — many have a documented workaround.

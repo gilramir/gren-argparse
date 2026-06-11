@@ -18,6 +18,7 @@ import Cli.PrettyPrinter as PP
 import Cli.Program
 import Node
 import Stream.Log
+import Task
 
 
 type Command
@@ -88,7 +89,7 @@ main =
         { parser = parser
         , onCommand =
             \env cmd ->
-                when cmd is
+                (when cmd is
                     Status ->
                         Stream.Log.line env.stdout "On branch main, nothing to commit."
 
@@ -100,6 +101,8 @@ main =
 
                     RemoteList ->
                         Stream.Log.line env.stdout "(this demo keeps no state, so there are no remotes)"
+                )
+                    |> Task.map (\_ -> Cli.Program.Succeeded)
         }
 
 

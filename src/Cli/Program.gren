@@ -1,4 +1,4 @@
-module Cli.Program exposing ( run, runWithContext, runRoot )
+module Cli.Program exposing ( Outcome(..), run, runWithContext, runRoot )
 
 {-| A convenience wrapper that turns a [Cli.Parser.App](Cli.Parser#App) into a
 ready-to-run Node program, handling the boilerplate most command-line tools
@@ -10,17 +10,33 @@ want:
   stdout (exit `0`)
 * a successfully parsed command is handed to your `onCommand` function
 
-This is opinionated on purpose. Programs that need finer control — a custom
-exit code, or a full model/update loop — should skip this module and call
+Your handler never touches exit codes. It returns a `Task String Outcome`, and
+this module turns that into the process exit status for you:
+
+* the task succeeds with [Succeeded](#Outcome) → exit `0`
+* the task succeeds with [Failed](#Outcome) → exit `1`, printing nothing extra
+  (you've already written whatever report you wanted)
+* the task fails with a `String` → that string is printed to stderr and the
+  program exits `1`
+
+So there are two distinct ways to signal failure, mirroring how Unix tools
+behave. Fail the task when something went *wrong* and you have a diagnostic to
+show ("no such file"). Return `Failed` when the command ran fine but the
+*answer* is negative and you've already printed your own output — a linter that
+found problems, a test runner with failing tests, a `grep` that matched
+nothing. See [Outcome](#Outcome).
+
+This is opinionated on purpose. Programs that need a *different* exit code (say
+`2`), or a full model/update loop, should skip this module and call
 [Cli.Parser.run](Cli.Parser#run) directly inside their own `Node` program. See
-`example/src/MainManual.gren`.
+`examples/manual/`.
 
 If all you need is access to subsystem permissions (filesystem, terminal, child
 processes, …), you don't have to drop down that far: use
 [runWithContext](#runWithContext), which lets you run your own initialization
 before the command handler while keeping all of the boilerplate above.
 
-@docs run, runWithContext, runRoot
+@docs Outcome, run, runWithContext, runRoot
 -}
 
 import Cli.Parser
@@ -29,6 +45,58 @@ import Init
 import Node
 import Stream.Log
 import Task exposing (Task)
+
+
+{-| The result of running a command: did the program *succeed* or *fail*?
+
+A command handler returns a `Task String Outcome`. On success the `Outcome`
+decides the exit status — `Succeeded` exits `0`, `Failed` exits `1` — so your
+handler expresses pass/fail in domain terms and never calls `Node.setExitCode`
+itself.
+
+`Failed` is for "the command ran correctly, but the answer is no": a check that
+didn't pass, a search with no matches, a build that found errors. It exits `1`
+*silently*, on the assumption you've already printed your own report. If instead
+you want to surface an error *message*, fail the task (`Task.fail "…"`) rather
+than returning `Failed`; that string goes to stderr (also exit `1`).
+
+    check : Node.Environment -> Cmd -> Task String Cli.Program.Outcome
+    check env cmd =
+        when cmd is
+            Lint { path } ->
+                lint path
+                    |> Task.andThen
+                        (\problems ->
+                            if Array.length problems == 0 then
+                                Stream.Log.line env.stdout "All good."
+                                    |> Task.map (\_ -> Cli.Program.Succeeded)
+
+                            else
+                                reportProblems env.stderr problems
+                                    |> Task.map (\_ -> Cli.Program.Failed)
+                        )
+-}
+type Outcome
+    = Succeeded
+    | Failed
+
+
+{-| Turn a handler's `Task String Outcome` into the `Task String {}` the runner
+threads to `endSimpleProgram`, setting the process exit code from the outcome.
+The `String` error is left untouched for the caller's `Task.onError` to print.
+-}
+applyOutcome : Task String Outcome -> Task String {}
+applyOutcome task =
+    task
+        |> Task.andThen
+            (\outcome ->
+                when outcome is
+                    Succeeded ->
+                        Task.succeed {}
+
+                    Failed ->
+                        Node.setExitCode 1
+            )
 
 
 {-| Build a `Node` program from a parser and a command handler.
@@ -42,16 +110,18 @@ import Task exposing (Task)
                     when command is
                         MyCli.Greet { name } ->
                             Stream.Log.line env.stdout ("Hello, " ++ name)
+                                |> Task.map (\_ -> Cli.Program.Succeeded)
             }
 
 `onCommand` receives the [Node.Environment](Node#Environment) (stdout, stderr,
-args, …) and your parsed command, and returns a `Task String {}`. If it fails,
-the `String` error is printed to stderr and the program exits with code `1` —
-the same treatment a parse error gets.
+args, …) and your parsed command, and returns a `Task String Outcome`. Succeed
+with [Succeeded](#Outcome) to exit `0` or [Failed](#Outcome) to exit `1`; fail
+the task with a `String` to print a diagnostic to stderr and exit `1` — the same
+treatment a parse error gets.
 -}
 run :
     { parser : Cli.Parser.App cmd
-    , onCommand : Node.Environment -> cmd -> Task String {}
+    , onCommand : Node.Environment -> cmd -> Task String Outcome
     }
     -> Node.SimpleProgram a
 run { parser, onCommand } =
@@ -94,16 +164,18 @@ handed to every `onCommand` invocation.
                             FileSystem.readFile context.fs path
                                 |> Task.mapError FileSystem.errorToString
                                 |> Task.andThen (\contents -> Stream.Log.line env.stdout contents)
+                                |> Task.map (\_ -> Cli.Program.Succeeded)
             }
 
-Parse errors, `--help`/`--version`, and exit codes are handled exactly as in
-[run](#run). The `context` is acquired up front, so it is available even on the
-help/error paths; that's harmless, since acquiring a permission performs no I/O.
+Parse errors, `--help`/`--version`, and the [Outcome](#Outcome)→exit-code
+mapping are handled exactly as in [run](#run). The `context` is acquired up
+front, so it is available even on the help/error paths; that's harmless, since
+acquiring a permission performs no I/O.
 -}
 runWithContext :
     { parser : Cli.Parser.App cmd
     , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task (Cmd a)
-    , onCommand : Node.Environment -> context -> cmd -> Task String {}
+    , onCommand : Node.Environment -> context -> cmd -> Task String Outcome
     }
     -> Node.SimpleProgram a
 runWithContext { parser, init, onCommand } =
@@ -130,6 +202,7 @@ runWithContext { parser, init, onCommand } =
 
                     Cli.Parser.Success cmd ->
                         onCommand env context cmd
+                            |> applyOutcome
                             |> Task.onError (\msg -> failWith (PP.text msg))
 
 
@@ -148,17 +221,19 @@ is the [Cli.Parser.runCommand](Cli.Parser#runCommand) counterpart to
             , onCommand =
                 \env (MyCli.Greet { name, loud }) ->
                     Stream.Log.line env.stdout (greeting name loud)
+                        |> Task.map (\_ -> Cli.Program.Succeeded)
             }
 
 `name` and `version` drive the `--help` usage line and `--version` output. The
 command's own `word` is ignored (the help line reads `name <args>`), so you can
-leave it empty.
+leave it empty. The [Outcome](#Outcome)→exit-code mapping works as in
+[run](#run).
 -}
 runRoot :
     { name : String
     , version : String
     , command : Cli.Parser.Command args flags cmd
-    , onCommand : Node.Environment -> cmd -> Task String {}
+    , onCommand : Node.Environment -> cmd -> Task String Outcome
     }
     -> Node.SimpleProgram a
 runRoot { name, version, command, onCommand } =
@@ -192,4 +267,5 @@ runRoot { name, version, command, onCommand } =
 
                         Cli.Parser.Success cmd ->
                             onCommand env cmd
+                                |> applyOutcome
                                 |> Task.onError (\msg -> failWith (PP.text msg))
