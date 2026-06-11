@@ -795,7 +795,7 @@ threeArgs combine firstArg secondArg thirdArg =
 zeroOrMoreArgs : Arg val -> ArgumentParser (Array val)
 zeroOrMoreArgs arg =
     ArgumentParser
-        { usage = arg.value.label
+        { usage = "[<" ++ arg.value.label ++ ">...]"
         , positionals =
             [ { name = arg.value.label
               , description = arg.help
@@ -825,7 +825,7 @@ zeroOrMoreArgs arg =
 oneOrMoreArgs : Arg val -> ArgumentParser (Array val)
 oneOrMoreArgs arg =
     ArgumentParser
-        { usage = arg.value.label
+        { usage = "<" ++ arg.value.label ++ ">..."
         , positionals =
             [ { name = arg.value.label
               , description = arg.help
