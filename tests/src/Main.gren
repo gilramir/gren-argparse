@@ -1,15 +1,25 @@
 module Main exposing (main)
 
-import Test
-import Test.Runner.Node as TestRunner
+import ChildProcess
+import Init
+import Node
+import Test.Runner.Effectful as Effectful exposing (run, describe, wrap)
+
 import Test.Cli.Parser
 import Test.Cli.PrettyPrinter
+import Test.Cli.Program
 
 
-main : TestRunner.Program
+main : Effectful.Program a
 main =
-    TestRunner.run <|
-        Test.describe "youruser/cli tests"
-            [ Test.Cli.Parser.tests
-            , Test.Cli.PrettyPrinter.tests
-            ]
+    Node.defineSimpleProgram <| \env ->
+        Init.await ChildProcess.initialize <| \cpPerm ->
+            run env <|
+                describe "youruser/cli tests"
+                    -- The pure suites stay plain `Test.Test`; `wrap` lifts them
+                    -- into the effectful runner alongside the I/O-driven
+                    -- Cli.Program suite.
+                    [ wrap Test.Cli.Parser.tests
+                    , wrap Test.Cli.PrettyPrinter.tests
+                    , Test.Cli.Program.tests cpPerm
+                    ]

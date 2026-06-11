@@ -23,16 +23,24 @@ Validation is done by compiling and by the test suite.
   ./run-tests.sh   # gren make Main --output=app && node app
   ```
   Modeled on the `compiler-node` test harness. `tests/src/Main.gren`
-  wires the suites into `Test.Runner.Node`; `Test.Cli.Parser` covers command
+  wires the suites into the runner; `Test.Cli.Parser` covers command
   dispatch, arg arities, and the flag tokenizer, and `Test.Cli.PrettyPrinter`
-  covers the `Document` renderer. Uses `gren-lang/test` +
-  `gren-lang/test-runner-node`. The build artifact (`tests/app`) and
-  `tests/gren_packages/` are gitignored.
-- **Exit-code integration test:** `tests/exit-codes.sh`. `Cli.Program` does I/O
-  and sets the process exit code, so it can't be covered by the pure test
-  suite; this script runs the `with-permissions` example and asserts the exit
-  code + stream (stdout/stderr) for each `Outcome` path (`Succeeded` → 0,
-  `Failed` → 1 silent, task failure → 1 on stderr).
+  covers the `Document` renderer. These two are pure `Test.Test` suites; `Main`
+  runs everything through `blaix/gren-effectful-tests`
+  (`Test.Runner.Effectful`), lifting the pure suites with `Effectful.wrap` so
+  they sit alongside the I/O-driven `Cli.Program` suite. Uses `gren-lang/test` +
+  `gren-lang/test-runner-node` + `blaix/gren-effectful-tests`. The build
+  artifact (`tests/app`) and `tests/gren_packages/` are gitignored.
+- **Exit-code integration tests:** `Test.Cli.Program`. `Cli.Program` does I/O
+  and sets the process exit code, so it can't be covered by a *pure* suite —
+  awaiting its work in the test process would clobber the runner's own exit
+  code. Instead this suite uses `Test.Runner.Effectful`'s `await`/`awaitError`
+  to drive the built `with-permissions` example as a child process
+  (`ChildProcess.run`), asserting the exit code + stream (stdout/stderr) for
+  each `Outcome` path (`Succeeded` → 0, `Failed` → 1 silent, task failure → 1 on
+  stderr). Because it execs the example, `run-tests.sh` builds
+  `examples/with-permissions` before building/running the test app. (This
+  replaced the old `tests/exit-codes.sh` bash script.)
 - **Build and run an example.** `examples/` holds one self-contained `node`
   app per scenario, each depending on the package via
   `"youruser/cli": "local:../../"` and carrying its own `run.sh` (the same

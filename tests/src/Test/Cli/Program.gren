@@ -1,0 +1,131 @@
+module Test.Cli.Program exposing (tests)
+
+{-| Integration tests for `Cli.Program`'s `Outcome` → exit-code mapping.
+
+`Cli.Program` does I/O and sets the process exit code, so it can't be exercised
+by the pure `gren-lang/test` suite: awaiting its work *in the test process*
+would clobber the runner's own exit code. Instead we drive the built
+`with-permissions` example as a child process (via `ChildProcess.run`) and
+assert on the observable result — exit code plus which stream carried output.
+This is the Gren-native replacement for the old `tests/exit-codes.sh`.
+
+The example routes all three outcomes through one `count <file>` command:
+
+  - non-empty file → `Cli.Program.Succeeded` → exit 0, size on stdout
+  - empty file     → `Cli.Program.Failed`    → exit 1, note on stderr
+  - missing file   → task fails              → exit 1, error on stderr
+
+The example is built by `run-tests.sh` before this suite runs; we invoke it with
+its own directory as the working directory, mirroring how the example is meant
+to be used (`./run.sh count gren.json`).
+-}
+
+import Bytes exposing (Bytes)
+import ChildProcess
+import Task exposing (Task)
+import Expect
+import Test.Runner.Effectful as Effectful exposing (Test, describe, await, awaitError, test)
+
+
+tests : ChildProcess.Permission -> Test
+tests cpPerm =
+    describe "Cli.Program (exit-code integration)"
+        [ succeedsTest cpPerm
+        , failsQuietlyTest cpPerm
+        , errorsTest cpPerm
+        ]
+
+
+-- The example lives here relative to the test process's working directory
+-- (tests/, where run-tests.sh launches `node app`). Running with this as the
+-- child's working directory lets us name input files the way the example docs
+-- do (e.g. `gren.json`, a non-empty file that ships with the example).
+exampleDir : String
+exampleDir =
+    "../examples/with-permissions"
+
+
+-- `node app <args...>`, run in the example's own directory.
+runExample : ChildProcess.Permission -> Array String -> Task ChildProcess.FailedRun ChildProcess.SuccessfulRun
+runExample cpPerm args =
+    ChildProcess.run cpPerm "node"
+        (Array.pushFirst "app" args)
+        { ChildProcess.defaultRunOptions
+            | workingDirectory = ChildProcess.SetWorkingDirectory exampleDir
+        }
+
+
+bytesToString : Bytes -> String
+bytesToString bytes =
+    Maybe.withDefault "" (Bytes.toString bytes)
+
+
+succeedsTest : ChildProcess.Permission -> Test
+succeedsTest cpPerm =
+    -- gren.json ships with the example and is non-empty → exit 0, size on stdout.
+    await "count of a non-empty file"
+        (runExample cpPerm [ "count", "gren.json" ])
+        <| \{ stdout, stderr } ->
+            describe "non-empty file succeeds"
+                [ test "reports the size on stdout" <| \_ ->
+                    Expect.equal True (String.contains "bytes" (bytesToString stdout))
+                , test "writes nothing to stderr" <| \_ ->
+                    Expect.equal "" (bytesToString stderr)
+                ]
+
+
+failsQuietlyTest : ChildProcess.Permission -> Test
+failsQuietlyTest cpPerm =
+    -- /dev/null reads as empty → Cli.Program.Failed → exit 1, note on stderr,
+    -- nothing on stdout.
+    awaitError "count of an empty file"
+        (runExample cpPerm [ "count", "/dev/null" ])
+        <| \failure ->
+            whenProgramError "empty file fails quietly" failure <| \{ exitCode, stdout, stderr } ->
+                [ test "exits 1" <| \_ ->
+                    Expect.equal 1 exitCode
+                , test "writes nothing to stdout" <| \_ ->
+                    Expect.equal "" (bytesToString stdout)
+                , test "explains itself on stderr" <| \_ ->
+                    Expect.equal True (String.contains "is empty" (bytesToString stderr))
+                ]
+
+
+errorsTest : ChildProcess.Permission -> Test
+errorsTest cpPerm =
+    -- A missing file fails the task → exit 1, diagnostic on stderr.
+    awaitError "count of a missing file"
+        (runExample cpPerm [ "count", "/no/such/file" ])
+        <| \failure ->
+            whenProgramError "missing file errors" failure <| \{ exitCode, stdout, stderr } ->
+                [ test "exits 1" <| \_ ->
+                    Expect.equal 1 exitCode
+                , test "writes nothing to stdout" <| \_ ->
+                    Expect.equal "" (bytesToString stdout)
+                , test "writes a diagnostic to stderr" <| \_ ->
+                    Expect.notEqual "" (bytesToString stderr)
+                ]
+
+
+-- A child process can fail two ways: the program itself exited non-zero
+-- (`ProgramError`, what every case here expects), or Node couldn't even launch
+-- it (`InitError` — e.g. `node` missing). Pull out the `ProgramError` fields
+-- for the caller's assertions; an `InitError` is a hard, unexpected failure.
+whenProgramError :
+    String
+    -> ChildProcess.FailedRun
+    -> ({ exitCode : Int, stdout : Bytes, stderr : Bytes } -> Array Test)
+    -> Test
+whenProgramError description failure toTests =
+    when failure is
+        ChildProcess.ProgramError fields ->
+            describe description (toTests fields)
+
+        ChildProcess.InitError { program, errorCode } ->
+            test description <| \_ ->
+                Expect.fail
+                    ("Could not launch the example program '"
+                        ++ program
+                        ++ "': "
+                        ++ errorCode
+                    )
