@@ -1,0 +1,15 @@
+module Main exposing (main)
+
+import Test
+import Test.Runner.Node as TestRunner
+import Test.Cli.Parser
+import Test.Cli.PrettyPrinter
+
+
+main : TestRunner.Program
+main =
+    TestRunner.run <|
+        Test.describe "youruser/cli tests"
+            [ Test.Cli.Parser.tests
+            , Test.Cli.PrettyPrinter.tests
+            ]

@@ -1,0 +1,208 @@
+module Test.Cli.PrettyPrinter exposing (tests)
+
+import Expect exposing (Expectation)
+import Test exposing (Test, describe, test)
+import Cli.PrettyPrinter as PP
+
+
+tests : Test
+tests =
+    describe "PrettyPrinter"
+        [ describe "text"
+            [ test "empty returns the empty string" <| \{} ->
+                PP.empty
+                    |> PP.toString
+                    |> Expect.equal ""
+            , test "text returns the provided text" <| \{} ->
+                PP.text "Hello, world!"
+                    |> PP.toString
+                    |> Expect.equal "Hello, world!"
+            , test "text replaces newlines with space, use vertical block for placing text on lines" <| \{} ->
+                PP.text "Hello\nworld!"
+                    |> PP.toString
+                    |> Expect.equal "Hello world!"
+            , test "text also replaces windows-style newlines" <| \{} ->
+                PP.text "Hello\r\nworld!"
+                    |> PP.toString
+                    |> Expect.equal "Hello world!"
+            , test "text can be split by setting a max column" <| \{} ->
+                PP.text "Hello, world!"
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 5 }
+                    |> Expect.equal "Hello\n, wor\nld!"
+            , test "words ignores spaces and newlines" <| \{} ->
+                PP.words "My      fancy\n words"
+                    |> PP.toString
+                    |> Expect.equal "My fancy words"
+            , test "setting a max column splits at word boundaries" <| \{} ->
+                PP.words "My fancy words"
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 5 }
+                    |> Expect.equal "My\nfancy\nwords"
+            ]
+        , describe "color"
+            [ test "colorized returns provided text with ansi escape sequence" <| \{} ->
+                PP.text "My green output"
+                    |> PP.color PP.Green
+                    |> PP.toString
+                    |> Expect.equal "\u{001b}[32mMy green output\u{001b}[39m"
+            , test "intenseColor returns provided text with ansi escape sequence" <| \{} ->
+                PP.text "My very green output"
+                    |> PP.intenseColor PP.Green
+                    |> PP.toString
+                    |> Expect.equal "\u{001b}[92mMy very green output\u{001b}[39m"
+            , test "Colors can be stripped" <| \{} ->
+                PP.verticalBlock
+                    [ PP.text "one"
+                    , PP.color PP.Green <| PP.text "two"
+                    , PP.text "three"
+                    ]
+                    |> PP.stripColor
+                    |> PP.toString
+                    |> Expect.equal
+                        ( PP.verticalBlock
+                            [ PP.text "one"
+                            , PP.text "two"
+                            , PP.text "three"
+                            ]
+                            |> PP.toString
+                        )
+            ]
+        , describe "blocks"
+            [ test "blocks joins things together" <| \{} ->
+                PP.block
+                    [ PP.text "First part"
+                    , PP.text "Second part"
+                    , PP.text "Third part"
+                    ]
+                    |> PP.toString
+                    |> Expect.equal "First partSecond partThird part"
+            , test "blocks joins things together into a single line, indents do nothing" <| \{} ->
+                PP.block
+                    [ PP.text "First part"
+                    , PP.text "Second part"
+                        |> PP.indent
+                    , PP.text "Third part"
+                        |> PP.indent
+                    ]
+                    |> PP.toString
+                    |> Expect.equal "First partSecond partThird part"
+            , test "except for the first line" <| \{} ->
+                PP.block
+                    [ PP.text "First part"
+                        |> PP.indent
+                    , PP.text "Second part"
+                    , PP.text "Third part"
+                    ]
+                    |> PP.toString
+                    |> Expect.equal "    First partSecond partThird part"
+            , test "vertical blocks joins things together by newlines" <| \{} ->
+                PP.verticalBlock
+                    [ PP.text "First part"
+                    , PP.text "Second part"
+                        |> PP.indent
+                    , PP.text "Third part"
+                        |> PP.indent
+                    ]
+                    |> PP.toString
+                    |> Expect.equal
+                        """
+                        First part
+                            Second part
+                            Third part
+                        """
+            , test "the newline separator can be overriden" <| \{} ->
+                PP.verticalBlock
+                    [ PP.text "First part"
+                    , PP.text "Second part"
+                        |> PP.indent
+                    , PP.text "Third part"
+                        |> PP.indent
+                    ]
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | newlineSeparator = "\r\n"}
+                    |> Expect.equal
+                        "First part\r\n    Second part\r\n    Third part"
+            ]
+        , describe "indent"
+            [ test "indent adds leading whitespace" <| \{} ->
+                PP.text "My indented text"
+                    |> PP.indent
+                    |> PP.toString
+                    |> Expect.equal "    My indented text"
+            , test "it's possible to adjust the number of spaces in an indentation" <| \{} ->
+                PP.text "My indented text"
+                    |> PP.indent
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | indentationSize = 2 }
+                    |> Expect.equal "  My indented text"
+            , test "indents work with words" <| \{} ->
+                PP.words "my lengthy description with words"
+                    |> PP.indent
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 15}
+                    |> Expect.equal "    my lengthy\n    description\n    with words"
+            , test "indents can be nested" <| \{} ->
+                PP.verticalBlock
+                    [ PP.text "First part"
+                    , PP.indent <|
+                        PP.verticalBlock
+                            [ PP.text "Second part"
+                            , PP.indent <|
+                                PP.text "Third part"
+                            ]
+                    ]
+                    |> PP.toString
+                    |> Expect.equal
+                        """
+                        First part
+                            Second part
+                                Third part
+                        """
+            , test "nested indents work correctly through nested blocks" <| \{} ->
+                PP.verticalBlock
+                    [ PP.text "First part"
+                    , PP.indent <|
+                        PP.verticalBlock
+                            [ PP.verticalBlock
+                                [ PP.text "Second part"
+                                , PP.indent <|
+                                    PP.text "Third part"
+                                ]
+                            ]
+                    ]
+                    |> PP.toString
+                    |> Expect.equal
+                        """
+                        First part
+                            Second part
+                                Third part
+                        """
+            , test "nested indents work correctly through regular blocks" <| \{} ->
+                PP.verticalBlock
+                    [ PP.text "First part"
+                    , PP.indent <|
+                        PP.verticalBlock
+                            [ PP.block
+                                [ PP.text "Second part"
+                                , PP.text "Third part"
+                                ]
+                            ]
+                    ]
+                    |> PP.toString
+                    |> Expect.equal
+                        """
+                        First part
+                            Second partThird part
+                        """
+            , test "indents work correctly through colorized block" <| \{} ->
+                PP.verticalBlock
+                    [ PP.text "First part"
+                    ]
+                    |> PP.indent
+                    |> PP.color PP.Cyan
+                    |> PP.toString
+                    |> Expect.equal
+                        "\u{001b}[36m    First part\u{001b}[39m"
+            ]
+        ]
