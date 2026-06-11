@@ -1,0 +1,113 @@
+module Main exposing (main)
+
+{-| The low-level alternative to `Cli.Program.run`: call `Cli.Parser.run`
+yourself and handle every `CommandParseResult` constructor by hand. Use this
+when you need a custom exit code or your own model/update loop.
+
+This version exits `2` (not `1`) on a usage error, to show that the exit code
+is entirely under your control.
+
+    ./run.sh greet World --loud
+    ./run.sh greet World
+    ./run.sh --help
+-}
+
+import Cli.Parser
+import Cli.PrettyPrinter as PP
+import Node
+import Stream.Log
+import Task
+
+
+type Command
+    = Greet { name : String, loud : Bool }
+
+
+parser : Cli.Parser.App Command
+parser =
+    { name = "hello"
+    , version = "1.0.0"
+    , intro = PP.words "A greeter wired up by hand."
+    , outro = PP.empty
+    , commands =
+        Cli.Parser.defineGroup
+            |> Cli.Parser.withCommand
+                { word = "greet"
+                , arguments =
+                    Cli.Parser.oneArg
+                        { value = nameParser
+                        , help = "Who to greet"
+                        }
+                , flags =
+                    Cli.Parser.initFlags (\loud -> { loud = loud })
+                        |> Cli.Parser.toggle "loud" "Shout the greeting"
+                , commonDescription =
+                    Just "Greet someone by name."
+                , summary =
+                    "The `greet` command says hello:"
+                , example =
+                    PP.words "hello greet World --loud"
+                , builder =
+                    \name flags ->
+                        Greet { name = name, loud = flags.loud }
+                }
+    }
+
+
+main : Node.SimpleProgram a
+main =
+    Node.defineSimpleProgram <| \env ->
+        let
+            args =
+                Array.dropFirst 2 env.args
+
+            out doc =
+                Stream.Log.line env.stdout (PP.toString doc)
+
+            -- Full control: usage errors exit with code 2, not the conventional 1.
+            usageError doc =
+                Stream.Log.line env.stderr (PP.toString doc)
+                    |> Task.andThen (\_ -> Node.setExitCode 2)
+        in
+        Node.endSimpleProgram <|
+            when Cli.Parser.run args parser is
+                Cli.Parser.UnknownCommand name ->
+                    usageError (PP.text ("Unknown command: " ++ name))
+
+                Cli.Parser.BadFlags err ->
+                    usageError (Cli.Parser.flagErrorPrettified err)
+
+                Cli.Parser.BadArguments err ->
+                    usageError (Cli.Parser.argumentErrorPrettified err)
+
+                Cli.Parser.HelpText doc ->
+                    out doc
+
+                Cli.Parser.Success cmd ->
+                    when cmd is
+                        Greet { name, loud } ->
+                            out (PP.text (greeting name loud))
+
+
+greeting : String -> Bool -> String
+greeting name loud =
+    let
+        base =
+            "Hello, " ++ name
+    in
+    if loud then
+        String.toUpper base ++ "!"
+
+    else
+        base ++ "."
+
+
+nameParser : Cli.Parser.ValueParser String
+nameParser =
+    { singular = "name"
+    , plural = "names"
+    , fn = Just
+    , examples =
+        [ "World"
+        ]
+    }

@@ -28,24 +28,26 @@ Validation is done by compiling and by the test suite.
   covers the `Document` renderer. Uses `gren-lang/test` +
   `gren-lang/test-runner-node`. The build artifact (`tests/app`) and
   `tests/gren_packages/` are gitignored.
-- **Build and run the example** (from `example/`, which depends on the package
-  via `"youruser/cli": "local:../"`):
+- **Build and run an example.** `examples/` holds one self-contained `node`
+  app per scenario, each depending on the package via
+  `"youruser/cli": "local:../../"` and carrying its own `run.sh` (the same
+  `gren make Main --output=app && node app "$@"` form as `tests/run-tests.sh`):
   ```bash
-  cd example
-  gren make Main --output=app   # NOT --output=app.js
-  node app greet World --loud
-  node app --help
+  cd examples/one-level
+  ./run.sh add "buy milk"
+  ./run.sh --help
   ```
-  Pass the **module name** `Main`, not the file path `src/Main.gren`: despite
-  what `gren make --help` and `example`'s README show, gren 0.6.5 rejects the
-  path form (`<module-names>` error) and wants the bare module name.
-  Use `--output=app` (an executable). `--output=app.js` produces a *library
-  module* that exports `Main.init` without calling it, so it runs and prints
-  nothing. `example/src/Main.gren` uses the `Cli.Program.run` convenience
-  runner; `example/src/MainManual.gren` shows the same tool wired up by hand
-  with `Cli.Parser.run` for full control; `example/src/MainContext.gren`
-  (build/run it as `MainContext`) demonstrates `Cli.Program.runWithContext`, a
-  `count <file>` command that acquires a `FileSystem.Permission` up front.
+  The subdirectories cover the runner styles: `no-subcommand/`
+  (`Cli.Program.runRoot` — flags/args, no command word), `one-level/`
+  (`Cli.Program.run` + `withCommand`), `two-level/` (`withPrefix`, nested
+  sub-commands), `manual/` (`Cli.Parser.run` by hand, custom exit code), and
+  `with-permissions/` (`Cli.Program.runWithContext`, a `count <file>` command
+  acquiring a `FileSystem.Permission`). Each `run.sh` builds the **module
+  name** `Main` (not the path `src/Main.gren`: gren 0.6.5 rejects the path form
+  with a `<module-names>` error) into an **executable** `app` (not `app.js`,
+  which is a *library module* that exports `Main.init` without calling it, so it
+  runs and prints nothing). The built `app` and per-example `gren_packages/`
+  are gitignored.
 
 ## Architecture
 
@@ -58,9 +60,12 @@ the obvious thing (errors → stderr + exit 1, help → stdout, success → your
 handler). `Cli.Program.runWithContext` is the same, but lets the caller run
 their own `Init.await` chain first (to acquire `FileSystem`/terminal/etc.
 permissions) and threads the resulting *context* into the handler — `run` is
-just `runWithContext` with an empty context. Anything needing custom exit codes
-or its own model/update loop skips both and matches on `CommandParseResult`
-directly.
+just `runWithContext` with an empty context. `Cli.Program.runRoot` is the
+no-sub-command variant: it takes a single `Command` (not an `App`) and calls
+`Cli.Parser.runCommand` — which parses flags/args directly, without consuming a
+command word — so a tool can be invoked as `mytool --loud World`. Anything
+needing custom exit codes or its own model/update loop skips these wrappers and
+matches on `CommandParseResult` directly.
 
 ### Three layers, composed by the user
 

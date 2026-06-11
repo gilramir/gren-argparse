@@ -1,0 +1,114 @@
+module Main exposing (main)
+
+{-| A CLI with **two levels** of sub-commands, git-style:
+`myrepo remote add <name>`, `myrepo remote list`. The `remote` word is a
+*prefix* (built with `Cli.Parser.withPrefix`) holding its own group of
+commands, sitting alongside a top-level `status` command.
+
+    ./run.sh status
+    ./run.sh remote add origin
+    ./run.sh remote remove origin
+    ./run.sh remote list
+    ./run.sh --help
+    ./run.sh remote          # lists the commands under the `remote` prefix
+-}
+
+import Cli.Parser
+import Cli.PrettyPrinter as PP
+import Cli.Program
+import Node
+import Stream.Log
+
+
+type Command
+    = Status
+    | RemoteAdd { name : String }
+    | RemoteRemove { name : String }
+    | RemoteList
+
+
+parser : Cli.Parser.App Command
+parser =
+    { name = "myrepo"
+    , version = "1.0.0"
+    , intro = PP.words "A git-flavored example with nested sub-commands."
+    , outro = PP.empty
+    , commands =
+        Cli.Parser.defineGroup
+            |> Cli.Parser.withCommand
+                { word = "status"
+                , arguments = Cli.Parser.noArgs
+                , flags = Cli.Parser.noFlags
+                , commonDescription = Just "Show the working-tree status."
+                , summary = "The `status` command reports the state of the repo:"
+                , example = PP.words "myrepo status"
+                , builder = \_args _flags -> Status
+                }
+            |> Cli.Parser.withPrefix "remote" remoteCommands
+    }
+
+
+remoteCommands : Cli.Parser.GroupParser Command
+remoteCommands =
+    Cli.Parser.defineGroup
+        |> Cli.Parser.withCommand
+            { word = "add"
+            , arguments =
+                Cli.Parser.oneArg { value = nameParser, help = "Name of the remote" }
+            , flags = Cli.Parser.noFlags
+            , commonDescription = Just "Add a remote."
+            , summary = "The `remote add` command registers a remote:"
+            , example = PP.words "myrepo remote add origin"
+            , builder = \name _flags -> RemoteAdd { name = name }
+            }
+        |> Cli.Parser.withCommand
+            { word = "remove"
+            , arguments =
+                Cli.Parser.oneArg { value = nameParser, help = "Name of the remote" }
+            , flags = Cli.Parser.noFlags
+            , commonDescription = Just "Remove a remote."
+            , summary = "The `remote remove` command drops a remote:"
+            , example = PP.words "myrepo remote remove origin"
+            , builder = \name _flags -> RemoteRemove { name = name }
+            }
+        |> Cli.Parser.withCommand
+            { word = "list"
+            , arguments = Cli.Parser.noArgs
+            , flags = Cli.Parser.noFlags
+            , commonDescription = Just "List the remotes."
+            , summary = "The `remote list` command shows every remote:"
+            , example = PP.words "myrepo remote list"
+            , builder = \_args _flags -> RemoteList
+            }
+
+
+main : Node.SimpleProgram a
+main =
+    Cli.Program.run
+        { parser = parser
+        , onCommand =
+            \env cmd ->
+                when cmd is
+                    Status ->
+                        Stream.Log.line env.stdout "On branch main, nothing to commit."
+
+                    RemoteAdd { name } ->
+                        Stream.Log.line env.stdout ("Added remote: " ++ name)
+
+                    RemoteRemove { name } ->
+                        Stream.Log.line env.stdout ("Removed remote: " ++ name)
+
+                    RemoteList ->
+                        Stream.Log.line env.stdout "(this demo keeps no state, so there are no remotes)"
+        }
+
+
+nameParser : Cli.Parser.ValueParser String
+nameParser =
+    { singular = "name"
+    , plural = "names"
+    , fn = Just
+    , examples =
+        [ "origin"
+        ]
+    }

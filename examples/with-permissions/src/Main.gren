@@ -1,4 +1,4 @@
-module MainContext exposing (main)
+module Main exposing (main)
 
 {-| Demonstrates `Cli.Program.runWithContext`: a command handler that needs a
 `FileSystem.Permission`, acquired up front in the initialization phase and
@@ -6,8 +6,8 @@ threaded through as the program's *context*.
 
 The `count` command reads a file and reports its size in bytes.
 
-Build with: gren make src/MainContext.gren --output=app
-Run with:   node app count gren.json
+    ./run.sh count gren.json
+    ./run.sh --help
 -}
 
 import Bytes

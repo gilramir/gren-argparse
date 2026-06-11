@@ -61,7 +61,7 @@ Built-in value parsers: `pathParser`, `grenFileParser`.
 
 ## Running it
 
-You have two options.
+A few options, in increasing order of control:
 
 **`Cli.Program.run` (convenient).** Hands you only the success case; parse
 errors go to stderr with exit `1`, help goes to stdout:
@@ -81,7 +81,12 @@ main =
 
 `onCommand` returns a `Task String {}`; if it fails, the `String` is printed to
 stderr and the program exits `1` — the same treatment parse errors get. See
-`example/src/Main.gren`.
+`examples/one-level/`.
+
+**`Cli.Program.runRoot` (no sub-commands).** For a tool that is just flags and
+arguments, with no command word — `mytool --loud World`. You give it a single
+`Command` instead of an `App`; everything else (errors, `--help`, `--version`,
+exit codes) works like `run`. See `examples/no-subcommand/`.
 
 **`Cli.Program.runWithContext` (run + permissions).** Like `run`, but with a
 chance to initialize subsystems and acquire permissions
@@ -89,45 +94,38 @@ chance to initialize subsystems and acquire permissions
 runs — these can only be obtained in a program's initialization phase, which
 `run` doesn't expose. Your `init` is handed the environment and a continuation;
 `Init.await` whatever you need, then call the continuation with a *context*
-value that is passed to every `onCommand`. See `example/src/MainContext.gren`.
+value that is passed to every `onCommand`. See `examples/with-permissions/`.
 
 **`Cli.Parser.run` (full control).** Call the pure parser yourself and handle
 each `CommandParseResult` constructor by hand (the `argv → result → dispatch`
 flow above) — use this when you need a custom exit code or your own
-model/update loop. See `example/src/MainManual.gren`.
+model/update loop. See `examples/manual/`.
 
-## Example
+## Examples
 
-See `example/`. Build it as an **executable** and run it:
+The `examples/` directory holds one self-contained app per scenario. Each has a
+`run.sh` that builds the program and forwards your arguments to it, so you can
+try any example with `./run.sh <args>`:
 
-```bash
-cd example
-gren make Main --output=app      # NOT --output=app.js
-node app greet World --loud      # HELLO, WORLD!
-node app greet World             # Hello, World.
-node app --help
-node app greet --help
-node app --version
-```
-
-`src/Main.gren` uses the `Cli.Program.run` convenience runner;
-`src/MainManual.gren` wires the same tool up by hand with `Cli.Parser.run`; and
-`src/MainContext.gren` shows `Cli.Program.runWithContext`, a `count <file>`
-command that acquires a `FileSystem.Permission` before reading the file:
+| Directory | Demonstrates | Try |
+| --- | --- | --- |
+| `no-subcommand/` | `Cli.Program.runRoot` — flags and args, no command word | `./run.sh --loud World` |
+| `one-level/` | `Cli.Program.run` + `withCommand` | `./run.sh add "buy milk"` |
+| `two-level/` | `withPrefix` — nested sub-commands | `./run.sh remote add origin` |
+| `manual/` | `Cli.Parser.run` by hand, with a custom exit code | `./run.sh greet World --loud` |
+| `with-permissions/` | `Cli.Program.runWithContext` — a `FileSystem.Permission` | `./run.sh count gren.json` |
 
 ```bash
-gren make MainContext --output=app
-node app count gren.json          # gren.json: 379 bytes
+cd examples/one-level
+./run.sh add "buy milk"
+./run.sh --help
 ```
 
-> Pass the **module name** `Main`, not the file path `src/Main.gren`. Despite
-> what `gren make --help` shows, gren 0.6.5 rejects the path form with a
-> `<module-names>` error.
-
-> Build with `--output=app` (an executable), not `--output=app.js`. A `.js`
-> output is a *library module* that exports `Main.init` without calling it, so
-> it runs and prints nothing. The executable output appends the bootstrap that
-> actually starts the program. (`./app` works too once it's marked executable.)
+> Each `run.sh` builds with `gren make Main --output=app` — note the **module
+> name** `Main`, not the file path `src/Main.gren` (gren 0.6.5 rejects the path
+> form with a `<module-names>` error), and an **executable** `app`, not
+> `app.js` (a `.js` output is a *library module* that exports `Main.init`
+> without calling it, so it runs and prints nothing).
 
 ## Notes
 

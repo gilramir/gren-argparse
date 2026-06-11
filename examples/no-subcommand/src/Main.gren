@@ -1,0 +1,83 @@
+module Main exposing (main)
+
+{-| A CLI with **no sub-command** — just flags and an argument, like
+`greet --loud World`. Built with `Cli.Program.runRoot`, which parses a single
+command without first consuming a command word.
+
+    ./run.sh World            # Hello, World.
+    ./run.sh --loud World     # HELLO, WORLD!
+    ./run.sh --help
+    ./run.sh --version
+-}
+
+import Cli.Parser
+import Cli.PrettyPrinter as PP
+import Cli.Program
+import Node
+import Stream.Log
+
+
+type Command
+    = Greet { name : String, loud : Bool }
+
+
+command : Cli.Parser.Command String { loud : Bool } Command
+command =
+    { word = ""
+    , arguments =
+        Cli.Parser.oneArg
+            { value = nameParser
+            , help = "Who to greet"
+            }
+    , flags =
+        Cli.Parser.initFlags (\loud -> { loud = loud })
+            |> Cli.Parser.toggle "loud" "Shout the greeting"
+    , commonDescription =
+        Nothing
+    , summary =
+        "Greets someone by name:"
+    , example =
+        PP.words "greet --loud World"
+    , builder =
+        \name flags ->
+            Greet { name = name, loud = flags.loud }
+    }
+
+
+main : Node.SimpleProgram a
+main =
+    Cli.Program.runRoot
+        { name = "greet"
+        , version = "1.0.0"
+        , command = command
+        , onCommand =
+            \env cmd ->
+                when cmd is
+                    Greet { name, loud } ->
+                        Stream.Log.line env.stdout (greeting name loud)
+        }
+
+
+greeting : String -> Bool -> String
+greeting name loud =
+    let
+        base =
+            "Hello, " ++ name
+    in
+    if loud then
+        String.toUpper base ++ "!"
+
+    else
+        base ++ "."
+
+
+nameParser : Cli.Parser.ValueParser String
+nameParser =
+    { singular = "name"
+    , plural = "names"
+    , fn = Just
+    , examples =
+        [ "World"
+        , "Alice"
+        ]
+    }

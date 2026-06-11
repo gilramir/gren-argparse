@@ -1,0 +1,95 @@
+module Main exposing (main)
+
+{-| A CLI with **one level** of sub-commands: `todo add <text>` and
+`todo list`. Built with `Cli.Program.run` and `Cli.Parser.withCommand`.
+
+    ./run.sh add "buy milk"
+    ./run.sh add "call mum" --done
+    ./run.sh list
+    ./run.sh --help
+-}
+
+import Cli.Parser
+import Cli.PrettyPrinter as PP
+import Cli.Program
+import Node
+import Stream.Log
+
+
+type Command
+    = Add { text : String, done : Bool }
+    | List
+
+
+parser : Cli.Parser.App Command
+parser =
+    { name = "todo"
+    , version = "1.0.0"
+    , intro = PP.words "A tiny todo CLI."
+    , outro = PP.empty
+    , commands =
+        Cli.Parser.defineGroup
+            |> Cli.Parser.withCommand
+                { word = "add"
+                , arguments =
+                    Cli.Parser.oneArg
+                        { value = textParser
+                        , help = "The task description"
+                        }
+                , flags =
+                    Cli.Parser.initFlags (\done -> { done = done })
+                        |> Cli.Parser.toggle "done" "Mark the task done immediately"
+                , commonDescription =
+                    Just "Add a task to the list."
+                , summary =
+                    "The `add` command records a task:"
+                , example =
+                    PP.words "todo add \"buy milk\""
+                , builder =
+                    \text flags ->
+                        Add { text = text, done = flags.done }
+                }
+            |> Cli.Parser.withCommand
+                { word = "list"
+                , arguments =
+                    Cli.Parser.noArgs
+                , flags =
+                    Cli.Parser.noFlags
+                , commonDescription =
+                    Just "Show every task."
+                , summary =
+                    "The `list` command prints the tasks:"
+                , example =
+                    PP.words "todo list"
+                , builder =
+                    \_args _flags ->
+                        List
+                }
+    }
+
+
+main : Node.SimpleProgram a
+main =
+    Cli.Program.run
+        { parser = parser
+        , onCommand =
+            \env cmd ->
+                when cmd is
+                    Add { text, done } ->
+                        Stream.Log.line env.stdout
+                            ((if done then "Added (done): " else "Added: ") ++ text)
+
+                    List ->
+                        Stream.Log.line env.stdout "(this demo keeps no state, so the list is always empty)"
+        }
+
+
+textParser : Cli.Parser.ValueParser String
+textParser =
+    { singular = "text"
+    , plural = "texts"
+    , fn = Just
+    , examples =
+        [ "buy milk"
+        ]
+    }
