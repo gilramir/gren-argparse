@@ -35,12 +35,15 @@ Validation is done by compiling and by the test suite.
   and sets the process exit code, so it can't be covered by a *pure* suite —
   awaiting its work in the test process would clobber the runner's own exit
   code. Instead this suite uses `Test.Runner.Effectful`'s `await`/`awaitError`
-  to drive the built `with-permissions` example as a child process
-  (`ChildProcess.run`), asserting the exit code + stream (stdout/stderr) for
-  each `Outcome` path (`Succeeded` → 0, `Failed` → 1 silent, task failure → 1 on
-  stderr). Because it execs the example, `run-tests.sh` builds
-  `examples/with-permissions` before building/running the test app. (This
-  replaced the old `tests/exit-codes.sh` bash script.)
+  to drive built examples as child processes (`ChildProcess.run`), asserting the
+  exit code + stream (stdout/stderr) for each `Outcome` path (`Succeeded` → 0,
+  `Failed` → 1 silent, task failure → 1 on stderr). The same three assertions
+  run against both context-acquiring runners — `with-permissions`
+  (`runWithContext`, invoked `count <file>`) and `root-with-permissions`
+  (`runRootWithContext`, invoked rootless `<file>`) — parameterized by example
+  dir and whether a `count` command word precedes the path. Because it execs the
+  examples, `run-tests.sh` builds both before building/running the test app.
+  (This replaced the old `tests/exit-codes.sh` bash script.)
 - **Build and run an example.** `examples/` holds one self-contained `node`
   app per scenario, each depending on the package via
   `"youruser/cli": "local:../../"` and carrying its own `run.sh` (the same

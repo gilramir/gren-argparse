@@ -4,20 +4,29 @@ module Test.Cli.Program exposing (tests)
 
 `Cli.Program` does I/O and sets the process exit code, so it can't be exercised
 by the pure `gren-lang/test` suite: awaiting its work *in the test process*
-would clobber the runner's own exit code. Instead we drive the built
-`with-permissions` example as a child process (via `ChildProcess.run`) and
-assert on the observable result — exit code plus which stream carried output.
-This is the Gren-native replacement for the old `tests/exit-codes.sh`.
+would clobber the runner's own exit code. Instead we drive built example
+programs as child processes (via `ChildProcess.run`) and assert on the
+observable result — exit code plus which stream carried output. This is the
+Gren-native replacement for the old `tests/exit-codes.sh`.
 
-The example routes all three outcomes through one `count <file>` command:
+Two examples route all three outcomes through one file-reading command:
 
   - non-empty file → `Cli.Program.Succeeded` → exit 0, size on stdout
   - empty file     → `Cli.Program.Failed`    → exit 1, note on stderr
   - missing file   → task fails              → exit 1, error on stderr
 
-The example is built by `run-tests.sh` before this suite runs; we invoke it with
-its own directory as the working directory, mirroring how the example is meant
-to be used (`./run.sh count gren.json`).
+We run the same three assertions against both, since they cover the two
+context-acquiring runners:
+
+  - `with-permissions/` uses `runWithContext`, invoked as `count <file>`
+  - `root-with-permissions/` uses `runRootWithContext`, invoked as `<file>`
+    (rootless: no command word)
+
+The only difference is whether a `count` command word precedes the path, so the
+per-example config supplies that. Both examples are built by `run-tests.sh`
+before this suite runs; we invoke each with its own directory as the working
+directory, mirroring how the examples are meant to be used (`./run.sh …`), and
+so each can resolve the non-empty `gren.json` that ships alongside it.
 -}
 
 import Bytes exposing (Bytes)
@@ -30,28 +39,44 @@ import Test.Runner.Effectful as Effectful exposing (Test, describe, await, await
 tests : ChildProcess.Permission -> Test
 tests cpPerm =
     describe "Cli.Program (exit-code integration)"
-        [ succeedsTest cpPerm
-        , failsQuietlyTest cpPerm
-        , errorsTest cpPerm
+        [ outcomeTests cpPerm
+            { label = "runWithContext (with-permissions)"
+            , dir = "../examples/with-permissions"
+            , argsFor = \file -> [ "count", file ]
+            }
+        , outcomeTests cpPerm
+            { label = "runRootWithContext (root-with-permissions)"
+            , dir = "../examples/root-with-permissions"
+            , argsFor = \file -> [ file ]
+            }
         ]
 
 
--- The example lives here relative to the test process's working directory
--- (tests/, where run-tests.sh launches `node app`). Running with this as the
--- child's working directory lets us name input files the way the example docs
--- do (e.g. `gren.json`, a non-empty file that ships with the example).
-exampleDir : String
-exampleDir =
-    "../examples/with-permissions"
+-- The three `Outcome` paths, run against one example. `argsFor` turns a target
+-- filename into the example's full argument array — that's the only thing that
+-- differs between the command-word (`count <file>`) and rootless (`<file>`)
+-- runners.
+outcomeTests :
+    ChildProcess.Permission
+    -> { label : String, dir : String, argsFor : String -> Array String }
+    -> Test
+outcomeTests cpPerm { label, dir, argsFor } =
+    describe label
+        [ succeedsTest cpPerm dir (argsFor "gren.json")
+        , failsQuietlyTest cpPerm dir (argsFor "/dev/null")
+        , errorsTest cpPerm dir (argsFor "/no/such/file")
+        ]
 
 
--- `node app <args...>`, run in the example's own directory.
-runExample : ChildProcess.Permission -> Array String -> Task ChildProcess.FailedRun ChildProcess.SuccessfulRun
-runExample cpPerm args =
+-- `node app <args...>`, run in the given example's own directory so the example
+-- can resolve input files the way its docs do (e.g. `gren.json`, a non-empty
+-- file that ships with each example).
+runExample : ChildProcess.Permission -> String -> Array String -> Task ChildProcess.FailedRun ChildProcess.SuccessfulRun
+runExample cpPerm dir args =
     ChildProcess.run cpPerm "node"
         (Array.pushFirst "app" args)
         { ChildProcess.defaultRunOptions
-            | workingDirectory = ChildProcess.SetWorkingDirectory exampleDir
+            | workingDirectory = ChildProcess.SetWorkingDirectory dir
         }
 
 
@@ -60,11 +85,11 @@ bytesToString bytes =
     Maybe.withDefault "" (Bytes.toString bytes)
 
 
-succeedsTest : ChildProcess.Permission -> Test
-succeedsTest cpPerm =
+succeedsTest : ChildProcess.Permission -> String -> Array String -> Test
+succeedsTest cpPerm dir args =
     -- gren.json ships with the example and is non-empty → exit 0, size on stdout.
     await "count of a non-empty file"
-        (runExample cpPerm [ "count", "gren.json" ])
+        (runExample cpPerm dir args)
         <| \{ stdout, stderr } ->
             describe "non-empty file succeeds"
                 [ test "reports the size on stdout" <| \_ ->
@@ -74,12 +99,12 @@ succeedsTest cpPerm =
                 ]
 
 
-failsQuietlyTest : ChildProcess.Permission -> Test
-failsQuietlyTest cpPerm =
+failsQuietlyTest : ChildProcess.Permission -> String -> Array String -> Test
+failsQuietlyTest cpPerm dir args =
     -- /dev/null reads as empty → Cli.Program.Failed → exit 1, note on stderr,
     -- nothing on stdout.
     awaitError "count of an empty file"
-        (runExample cpPerm [ "count", "/dev/null" ])
+        (runExample cpPerm dir args)
         <| \failure ->
             whenProgramError "empty file fails quietly" failure <| \{ exitCode, stdout, stderr } ->
                 [ test "exits 1" <| \_ ->
@@ -91,11 +116,11 @@ failsQuietlyTest cpPerm =
                 ]
 
 
-errorsTest : ChildProcess.Permission -> Test
-errorsTest cpPerm =
+errorsTest : ChildProcess.Permission -> String -> Array String -> Test
+errorsTest cpPerm dir args =
     -- A missing file fails the task → exit 1, diagnostic on stderr.
     awaitError "count of a missing file"
-        (runExample cpPerm [ "count", "/no/such/file" ])
+        (runExample cpPerm dir args)
         <| \failure ->
             whenProgramError "missing file errors" failure <| \{ exitCode, stdout, stderr } ->
                 [ test "exits 1" <| \_ ->
