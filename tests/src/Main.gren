@@ -5,9 +5,9 @@ import Init
 import Node
 import Test.Runner.Effectful as Effectful exposing (run, describe, wrap)
 
-import Test.Cli.Parser
-import Test.Cli.PrettyPrinter
-import Test.Cli.Program
+import Test.Argparse.Parser
+import Test.Argparse.PrettyPrinter
+import Test.Argparse.Program
 
 
 main : Effectful.Program a
@@ -18,8 +18,8 @@ main =
                 describe "youruser/cli tests"
                     -- The pure suites stay plain `Test.Test`; `wrap` lifts them
                     -- into the effectful runner alongside the I/O-driven
-                    -- Cli.Program suite.
-                    [ wrap Test.Cli.Parser.tests
-                    , wrap Test.Cli.PrettyPrinter.tests
-                    , Test.Cli.Program.tests cpPerm
+                    -- Argparse.Program suite.
+                    [ wrap Test.Argparse.Parser.tests
+                    , wrap Test.Argparse.PrettyPrinter.tests
+                    , Test.Argparse.Program.tests cpPerm
                     ]

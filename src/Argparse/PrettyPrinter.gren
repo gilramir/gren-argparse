@@ -1,4 +1,4 @@
-module Cli.PrettyPrinter exposing
+module Argparse.PrettyPrinter exposing
     ( Document
     --
     , empty

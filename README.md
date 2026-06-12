@@ -1,4 +1,4 @@
-# gren-cli
+# gren-argparse
 
 Declarative command-line argument parsing for Gren, with built-in `--help`,
 `--version`, and prettified error messages.
@@ -6,11 +6,11 @@ Declarative command-line argument parsing for Gren, with built-in `--help`,
 Extracted from the Gren compiler's CLI (`gren init`, `gren make`, …). Three
 modules:
 
-- **`Cli.Parser`** — turn `argv` into a value of your own command type. Pure;
+- **`Argparse.Parser`** — turn `argv` into a value of your own command type. Pure;
   no I/O.
-- **`Cli.PrettyPrinter`** — the ANSI-color-aware document type used for help
+- **`Argparse.PrettyPrinter`** — the ANSI-color-aware document type used for help
   and error output (`PP.text`, `PP.words`, `PP.block`, `PP.color`, …).
-- **`Cli.Program`** — an optional convenience runner that wires `Cli.Parser`
+- **`Argparse.Program`** — an optional convenience runner that wires `Argparse.Parser`
   into a `Node` program, printing parse errors to stderr and exiting `1`,
   printing help to stdout, and handing successful commands to you.
 
@@ -33,14 +33,14 @@ value, hand it the raw arguments, and get back a value of *your own* command
 type to pattern-match on:
 
 ```
-argv ──▶ Cli.Parser.run argv app ──▶ CommandParseResult YourCommand ──▶ you dispatch
+argv ──▶ Argparse.Parser.run argv app ──▶ CommandParseResult YourCommand ──▶ you dispatch
 ```
 
 Parsing is a pure function: it does no I/O and never exits the process. That
 purity is the whole point — it makes the parser testable and lets *you* decide
 what to print and which exit code to use. `run` handles `--help`, `--version`,
 the bare-invocation help screen, unknown commands, and missing/invalid flags
-and arguments — each as a constructor of `CommandParseResult`. `Cli.Program` is
+and arguments — each as a constructor of `CommandParseResult`. `Argparse.Program` is
 an opinionated wrapper that makes those decisions for you so you don't have to.
 
 There are three layers, which you compose:
@@ -67,27 +67,27 @@ library `Command` ties together arguments, flags, help text, and a `builder`
 that bridges parsed input into your `Command` type above.
 
 ```gren
-import Cli.Parser
-import Cli.PrettyPrinter as PP
+import Argparse.Parser
+import Argparse.PrettyPrinter as PP
 
-parser : Cli.Parser.App Command
+parser : Argparse.Parser.App Command
 parser =
     { name = "todo"
     , version = "1.0.0"
     , intro = PP.words "A small todo list."
     , outro = PP.empty
     , commands =
-        Cli.Parser.defineGroup
-            |> Cli.Parser.withCommand
+        Argparse.Parser.defineGroup
+            |> Argparse.Parser.withCommand
                 { word = "add"
                 , arguments =
-                    Cli.Parser.oneArg
+                    Argparse.Parser.oneArg
                         { value = textParser
                         , help = "The task to add"
                         }
                 , flags =
-                    Cli.Parser.initFlags (\done -> { done = done })
-                        |> Cli.Parser.toggle "done" "Mark it already done"
+                    Argparse.Parser.initFlags (\done -> { done = done })
+                        |> Argparse.Parser.toggle "done" "Mark it already done"
                 , commonDescription = Just "Add a task to the list."
                 , summary = "The `add` command appends a task:"
                 , example = PP.words "todo add \"buy milk\""
@@ -95,10 +95,10 @@ parser =
                     \text flags ->
                         Add { text = text, done = flags.done }
                 }
-            |> Cli.Parser.withCommand
+            |> Argparse.Parser.withCommand
                 { word = "list"
-                , arguments = Cli.Parser.noArgs
-                , flags = Cli.Parser.noFlags
+                , arguments = Argparse.Parser.noArgs
+                , flags = Argparse.Parser.noFlags
                 , commonDescription = Just "Show every task."
                 , summary = "The `list` command prints the tasks:"
                 , example = PP.words "todo list"
@@ -127,7 +127,7 @@ A few things worth knowing:
   value flags. It's just a record — write your own in a few lines:
 
   ```gren
-  textParser : Cli.Parser.ValueParser String
+  textParser : Argparse.Parser.ValueParser String
   textParser =
       { label = "text", fn = Just, examples = [ "buy milk" ] }
   ```
@@ -139,19 +139,19 @@ declare them.
 
 ## 3. Run it
 
-For most tools, `Cli.Program.run` is all you need. It wires the parser into a
+For most tools, `Argparse.Program.run` is all you need. It wires the parser into a
 `Node` program and makes the obvious decisions: parse errors → stderr + exit
 `1`, `--help`/`--version` → stdout, a parsed command → your handler.
 
 ```gren
-import Cli.Program
+import Argparse.Program
 import Node
 import Stream.Log
 import Task
 
 main : Node.SimpleProgram a
 main =
-    Cli.Program.run
+    Argparse.Program.run
         { parser = parser
         , onCommand =
             \env cmd ->
@@ -163,7 +163,7 @@ main =
                     List ->
                         Stream.Log.line env.stdout "(no tasks yet)"
                 )
-                    |> Task.map (\_ -> Cli.Program.Succeeded)
+                    |> Task.map (\_ -> Argparse.Program.Succeeded)
         }
 ```
 
@@ -172,7 +172,7 @@ parsed command. That's it — you've got a working CLI.
 
 ## Exit codes: the `Outcome` contract
 
-Your handler returns a `Task String Cli.Program.Outcome`, and `Cli.Program`
+Your handler returns a `Task String Argparse.Program.Outcome`, and `Argparse.Program`
 turns that into the process exit status. **You never call `Node.setExitCode`.**
 
 There are three results, and the split matches how Unix tools actually behave:
@@ -202,26 +202,26 @@ Here's a check command using both failure modes:
                     (\problems ->
                         if Array.length problems == 0 then
                             Stream.Log.line env.stdout "No problems found."
-                                |> Task.map (\_ -> Cli.Program.Succeeded)
+                                |> Task.map (\_ -> Argparse.Program.Succeeded)
 
                         else
                             -- ran fine, but the answer is "no" -> exit 1, no
                             -- extra diagnostic (we just printed the report)
                             reportProblems env.stderr problems
-                                |> Task.map (\_ -> Cli.Program.Failed)
+                                |> Task.map (\_ -> Argparse.Program.Failed)
                     )
 ```
 
 If your handler always succeeds (the common case), the only ceremony is a
-trailing `|> Task.map (\_ -> Cli.Program.Succeeded)`.
+trailing `|> Task.map (\_ -> Argparse.Program.Succeeded)`.
 
-> Need a *different* code, like `2`? `Cli.Program` is deliberately limited to
-> `0`/`1`. Drop down to `Cli.Parser.run` (below) and match on the result
+> Need a *different* code, like `2`? `Argparse.Program` is deliberately limited to
+> `0`/`1`. Drop down to `Argparse.Parser.run` (below) and match on the result
 > yourself — see `examples/manual/`, which exits `2` on a parse error.
 
 ## Choosing a runner
 
-`Cli.Program` offers four entry points, forming a 2×2 of {command-word vs.
+`Argparse.Program` offers four entry points, forming a 2×2 of {command-word vs.
 rootless} × {plain vs. context}; reach for the lowest-ceremony one that fits.
 
 - **`run`** — the standard case: an `App` with one or more command words.
@@ -242,7 +242,7 @@ rootless} × {plain vs. context}; reach for the lowest-ceremony one that fits.
   `runWithContext`. (`examples/root-with-permissions/`.)
 
 If you need something these don't give you — a custom exit code, a full
-model/update loop — skip `Cli.Program` and call `Cli.Parser.run` directly,
+model/update loop — skip `Argparse.Program` and call `Argparse.Parser.run` directly,
 matching on its five-constructor `CommandParseResult` (`UnknownCommand`,
 `BadFlags`, `BadArguments`, `HelpText`, `Success a`) by hand
 (`examples/manual/`).
@@ -255,10 +255,10 @@ try any example with `./run.sh <args>`:
 
 | Directory | Demonstrates | Try |
 | --- | --- | --- |
-| `no-subcommand/` | `Cli.Program.runRoot` — flags and args, no command word | `./run.sh --loud World` |
-| `one-level/` | `Cli.Program.run` + `withCommand` | `./run.sh add "buy milk"` |
+| `no-subcommand/` | `Argparse.Program.runRoot` — flags and args, no command word | `./run.sh --loud World` |
+| `one-level/` | `Argparse.Program.run` + `withCommand` | `./run.sh add "buy milk"` |
 | `two-level/` | `withPrefix` — nested sub-commands | `./run.sh remote add origin` |
-| `manual/` | `Cli.Parser.run` by hand, with a custom exit code | `./run.sh greet World --loud` |
+| `manual/` | `Argparse.Parser.run` by hand, with a custom exit code | `./run.sh greet World --loud` |
 | `with-permissions/` | `runWithContext` — a `FileSystem.Permission`, plus all three exit outcomes | `./run.sh count gren.json` |
 | `root-with-permissions/` | `runRootWithContext` — rootless + a `FileSystem.Permission` | `./run.sh gren.json` |
 
@@ -277,11 +277,11 @@ cd examples/one-level
 ## Testing
 
 The parser is pure, so test it directly with `gren-lang/test`: feed
-`Cli.Parser.run` an argument array and assert on the `CommandParseResult`. See
-`tests/src/Test/Cli/Parser.gren`, run with `tests/run-tests.sh`.
+`Argparse.Parser.run` an argument array and assert on the `CommandParseResult`. See
+`tests/src/Test/Argparse/Parser.gren`, run with `tests/run-tests.sh`.
 
-The exit-code behavior of `Cli.Program` is I/O, so it's covered by
-`Test.Cli.Program`, which uses `blaix/gren-effectful-tests` to drive the built
+The exit-code behavior of `Argparse.Program` is I/O, so it's covered by
+`Test.Argparse.Program`, which uses `blaix/gren-effectful-tests` to drive the built
 `with-permissions` example as a child process (`ChildProcess.run`) and asserts
 the exit code and stream for each `Outcome` path.
 

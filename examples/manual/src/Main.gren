@@ -1,6 +1,6 @@
 module Main exposing (main)
 
-{-| The low-level alternative to `Cli.Program.run`: call `Cli.Parser.run`
+{-| The low-level alternative to `Argparse.Program.run`: call `Argparse.Parser.run`
 yourself and handle every `CommandParseResult` constructor by hand. Use this
 when you need a custom exit code or your own model/update loop.
 
@@ -12,8 +12,8 @@ is entirely under your control.
     ./run.sh --help
 -}
 
-import Cli.Parser
-import Cli.PrettyPrinter as PP
+import Argparse.Parser
+import Argparse.PrettyPrinter as PP
 import Node
 import Stream.Log
 import Task
@@ -23,24 +23,24 @@ type Command
     = Greet { name : String, loud : Bool }
 
 
-parser : Cli.Parser.App Command
+parser : Argparse.Parser.App Command
 parser =
     { name = "hello"
     , version = "1.0.0"
     , intro = PP.words "A greeter wired up by hand."
     , outro = PP.empty
     , commands =
-        Cli.Parser.defineGroup
-            |> Cli.Parser.withCommand
+        Argparse.Parser.defineGroup
+            |> Argparse.Parser.withCommand
                 { word = "greet"
                 , arguments =
-                    Cli.Parser.oneArg
+                    Argparse.Parser.oneArg
                         { value = nameParser
                         , help = "Who to greet"
                         }
                 , flags =
-                    Cli.Parser.initFlags (\loud -> { loud = loud })
-                        |> Cli.Parser.toggle "loud" "Shout the greeting"
+                    Argparse.Parser.initFlags (\loud -> { loud = loud })
+                        |> Argparse.Parser.toggle "loud" "Shout the greeting"
                 , commonDescription =
                     Just "Greet someone by name."
                 , summary =
@@ -70,20 +70,20 @@ main =
                     |> Task.andThen (\_ -> Node.setExitCode 2)
         in
         Node.endSimpleProgram <|
-            when Cli.Parser.run args parser is
-                Cli.Parser.UnknownCommand name ->
+            when Argparse.Parser.run args parser is
+                Argparse.Parser.UnknownCommand name ->
                     usageError (PP.text ("Unknown command: " ++ name))
 
-                Cli.Parser.BadFlags err ->
-                    usageError (Cli.Parser.flagErrorPrettified err)
+                Argparse.Parser.BadFlags err ->
+                    usageError (Argparse.Parser.flagErrorPrettified err)
 
-                Cli.Parser.BadArguments err ->
-                    usageError (Cli.Parser.argumentErrorPrettified err)
+                Argparse.Parser.BadArguments err ->
+                    usageError (Argparse.Parser.argumentErrorPrettified err)
 
-                Cli.Parser.HelpText doc ->
+                Argparse.Parser.HelpText doc ->
                     out doc
 
-                Cli.Parser.Success cmd ->
+                Argparse.Parser.Success cmd ->
                     when cmd is
                         Greet { name, loud } ->
                             out (PP.text (greeting name loud))
@@ -102,7 +102,7 @@ greeting name loud =
         base ++ "."
 
 
-nameParser : Cli.Parser.ValueParser String
+nameParser : Argparse.Parser.ValueParser String
 nameParser =
     { label = "name"
     , fn = Just

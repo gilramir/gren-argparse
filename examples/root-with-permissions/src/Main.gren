@@ -1,6 +1,6 @@
 module Main exposing (main)
 
-{-| Demonstrates `Cli.Program.runRootWithContext`: the rootless counterpart to
+{-| Demonstrates `Argparse.Program.runRootWithContext`: the rootless counterpart to
 `runWithContext`. There is **no sub-command word** — the tool is invoked as
 `wc <file>` — *and* the handler needs a `FileSystem.Permission`, acquired up
 front in the initialization phase and threaded through as the program's
@@ -11,8 +11,8 @@ Like the `with-permissions` example, it exercises all three `Outcome` paths:
   - a **missing** file fails the task, so its error message goes to stderr and
     the program exits `1`;
   - an **empty** file is treated as a failed check — the handler returns
-    `Cli.Program.Failed`, which exits `1` after printing its own note;
-  - a **non-empty** file exits `0` via `Cli.Program.Succeeded`.
+    `Argparse.Program.Failed`, which exits `1` after printing its own note;
+  - a **non-empty** file exits `0` via `Argparse.Program.Succeeded`.
 
     ./run.sh gren.json        # prints the size, exits 0
     ./run.sh /no/such/file    # stderr error, exits 1
@@ -22,9 +22,9 @@ Like the `with-permissions` example, it exercises all three `Outcome` paths:
 -}
 
 import Bytes
-import Cli.Parser
-import Cli.PrettyPrinter as PP
-import Cli.Program
+import Argparse.Parser
+import Argparse.PrettyPrinter as PP
+import Argparse.Program
 import FileSystem
 import FileSystem.Path as Path exposing (Path)
 import Init
@@ -41,16 +41,16 @@ type alias Context =
     { fs : FileSystem.Permission }
 
 
-command : Cli.Parser.Command Path {} Command
+command : Argparse.Parser.Command Path {} Command
 command =
     { word = ""
     , arguments =
-        Cli.Parser.oneArg
-            { value = Cli.Parser.pathParser
+        Argparse.Parser.oneArg
+            { value = Argparse.Parser.pathParser
             , help = "The file to measure"
             }
     , flags =
-        Cli.Parser.noFlags
+        Argparse.Parser.noFlags
     , commonDescription =
         Nothing
     , summary =
@@ -65,7 +65,7 @@ command =
 
 main : Node.SimpleProgram a
 main =
-    Cli.Program.runRootWithContext
+    Argparse.Program.runRootWithContext
         { name = "wc"
         , version = "1.0.0"
         , command = command
@@ -89,7 +89,7 @@ main =
                                         -- exit 1 with no extra diagnostic.
                                         Stream.Log.line env.stderr
                                             (Path.toPosixString path ++ " is empty")
-                                            |> Task.map (\_ -> Cli.Program.Failed)
+                                            |> Task.map (\_ -> Argparse.Program.Failed)
 
                                     else
                                         Stream.Log.line env.stdout
@@ -98,6 +98,6 @@ main =
                                                 ++ String.fromInt (Bytes.length contents)
                                                 ++ " bytes"
                                             )
-                                            |> Task.map (\_ -> Cli.Program.Succeeded)
+                                            |> Task.map (\_ -> Argparse.Program.Succeeded)
                                 )
         }

@@ -1,6 +1,6 @@
-module Cli.Program exposing ( Outcome(..), run, runWithContext, runRoot, runRootWithContext )
+module Argparse.Program exposing ( Outcome(..), run, runWithContext, runRoot, runRootWithContext )
 
-{-| A convenience wrapper that turns a [Cli.Parser.App](Cli.Parser#App) into a
+{-| A convenience wrapper that turns a [Argparse.Parser.App](Argparse.Parser#App) into a
 ready-to-run Node program, handling the boilerplate most command-line tools
 want:
 
@@ -28,7 +28,7 @@ nothing. See [Outcome](#Outcome).
 
 This is opinionated on purpose. Programs that need a *different* exit code (say
 `2`), or a full model/update loop, should skip this module and call
-[Cli.Parser.run](Cli.Parser#run) directly inside their own `Node` program. See
+[Argparse.Parser.run](Argparse.Parser#run) directly inside their own `Node` program. See
 `examples/manual/`.
 
 If all you need is access to subsystem permissions (filesystem, terminal, child
@@ -39,8 +39,8 @@ before the command handler while keeping all of the boilerplate above.
 @docs Outcome, run, runWithContext, runRoot, runRootWithContext
 -}
 
-import Cli.Parser
-import Cli.PrettyPrinter as PP
+import Argparse.Parser
+import Argparse.PrettyPrinter as PP
 import Init
 import Node
 import Stream.Log
@@ -60,7 +60,7 @@ didn't pass, a search with no matches, a build that found errors. It exits `1`
 you want to surface an error *message*, fail the task (`Task.fail "…"`) rather
 than returning `Failed`; that string goes to stderr (also exit `1`).
 
-    check : Node.Environment -> Cmd -> Task String Cli.Program.Outcome
+    check : Node.Environment -> Cmd -> Task String Argparse.Program.Outcome
     check env cmd =
         when cmd is
             Lint { path } ->
@@ -69,11 +69,11 @@ than returning `Failed`; that string goes to stderr (also exit `1`).
                         (\problems ->
                             if Array.length problems == 0 then
                                 Stream.Log.line env.stdout "All good."
-                                    |> Task.map (\_ -> Cli.Program.Succeeded)
+                                    |> Task.map (\_ -> Argparse.Program.Succeeded)
 
                             else
                                 reportProblems env.stderr problems
-                                    |> Task.map (\_ -> Cli.Program.Failed)
+                                    |> Task.map (\_ -> Argparse.Program.Failed)
                         )
 -}
 type Outcome
@@ -103,14 +103,14 @@ applyOutcome task =
 
     main : Node.SimpleProgram a
     main =
-        Cli.Program.run
-            { parser = MyCli.parser
+        Argparse.Program.run
+            { parser = MyArgparse.parser
             , onCommand =
                 \env command ->
                     when command is
-                        MyCli.Greet { name } ->
+                        MyArgparse.Greet { name } ->
                             Stream.Log.line env.stdout ("Hello, " ++ name)
-                                |> Task.map (\_ -> Cli.Program.Succeeded)
+                                |> Task.map (\_ -> Argparse.Program.Succeeded)
             }
 
 `onCommand` receives the [Node.Environment](Node#Environment) (stdout, stderr,
@@ -120,7 +120,7 @@ the task with a `String` to print a diagnostic to stderr and exit `1` — the sa
 treatment a parse error gets.
 -}
 run :
-    { parser : Cli.Parser.App cmd
+    { parser : Argparse.Parser.App cmd
     , onCommand : Node.Environment -> cmd -> Task String Outcome
     }
     -> Node.SimpleProgram a
@@ -151,8 +151,8 @@ handed to every `onCommand` invocation.
 
     main : Node.SimpleProgram a
     main =
-        Cli.Program.runWithContext
-            { parser = MyCli.parser
+        Argparse.Program.runWithContext
+            { parser = MyArgparse.parser
             , init =
                 \_env toProgram ->
                     Init.await FileSystem.initialize <| \fsPermission ->
@@ -160,11 +160,11 @@ handed to every `onCommand` invocation.
             , onCommand =
                 \env context command ->
                     when command is
-                        MyCli.Build { path } ->
+                        MyArgparse.Build { path } ->
                             FileSystem.readFile context.fs path
                                 |> Task.mapError FileSystem.errorToString
                                 |> Task.andThen (\contents -> Stream.Log.line env.stdout contents)
-                                |> Task.map (\_ -> Cli.Program.Succeeded)
+                                |> Task.map (\_ -> Argparse.Program.Succeeded)
             }
 
 Parse errors, `--help`/`--version`, and the [Outcome](#Outcome)→exit-code
@@ -173,7 +173,7 @@ front, so it is available even on the help/error paths; that's harmless, since
 acquiring a permission performs no I/O.
 -}
 runWithContext :
-    { parser : Cli.Parser.App cmd
+    { parser : Argparse.Parser.App cmd
     , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task (Cmd a)
     , onCommand : Node.Environment -> context -> cmd -> Task String Outcome
     }
@@ -187,20 +187,20 @@ runWithContext { parser, init, onCommand } =
                         |> Task.andThen (\_ -> Node.setExitCode 1)
             in
             Node.endSimpleProgram <|
-                when Cli.Parser.run (Array.dropFirst 2 env.args) parser is
-                    Cli.Parser.UnknownCommand name ->
+                when Argparse.Parser.run (Array.dropFirst 2 env.args) parser is
+                    Argparse.Parser.UnknownCommand name ->
                         failWith (PP.text ("I don't recognize this command: " ++ name))
 
-                    Cli.Parser.BadFlags err ->
-                        failWith (Cli.Parser.flagErrorPrettified err)
+                    Argparse.Parser.BadFlags err ->
+                        failWith (Argparse.Parser.flagErrorPrettified err)
 
-                    Cli.Parser.BadArguments err ->
-                        failWith (Cli.Parser.argumentErrorPrettified err)
+                    Argparse.Parser.BadArguments err ->
+                        failWith (Argparse.Parser.argumentErrorPrettified err)
 
-                    Cli.Parser.HelpText doc ->
+                    Argparse.Parser.HelpText doc ->
                         Stream.Log.line env.stdout (PP.toString doc)
 
-                    Cli.Parser.Success cmd ->
+                    Argparse.Parser.Success cmd ->
                         onCommand env context cmd
                             |> applyOutcome
                             |> Task.onError (\msg -> failWith (PP.text msg))
@@ -208,20 +208,20 @@ runWithContext { parser, init, onCommand } =
 
 {-| Build a `Node` program from a *single* command, with no sub-command word —
 for tools that are just flags and arguments, like `mytool --loud World`. This
-is the [Cli.Parser.runCommand](Cli.Parser#runCommand) counterpart to
+is the [Argparse.Parser.runCommand](Argparse.Parser#runCommand) counterpart to
 [run](#run), and handles the same boilerplate (parse errors → stderr + exit 1,
 `--help`/`--version` → stdout, success → your handler).
 
     main : Node.SimpleProgram a
     main =
-        Cli.Program.runRoot
+        Argparse.Program.runRoot
             { name = "greet"
             , version = "1.0.0"
-            , command = MyCli.greetCommand
+            , command = MyArgparse.greetCommand
             , onCommand =
-                \env (MyCli.Greet { name, loud }) ->
+                \env (MyArgparse.Greet { name, loud }) ->
                     Stream.Log.line env.stdout (greeting name loud)
-                        |> Task.map (\_ -> Cli.Program.Succeeded)
+                        |> Task.map (\_ -> Argparse.Program.Succeeded)
             }
 
 `name` and `version` drive the `--help` usage line and `--version` output. The
@@ -236,7 +236,7 @@ context, the same way [run](#run) relates to [runWithContext](#runWithContext).
 runRoot :
     { name : String
     , version : String
-    , command : Cli.Parser.Command args flags cmd
+    , command : Argparse.Parser.Command args flags cmd
     , onCommand : Node.Environment -> cmd -> Task String Outcome
     }
     -> Node.SimpleProgram a
@@ -269,20 +269,20 @@ handed to `onCommand`.
 
     main : Node.SimpleProgram a
     main =
-        Cli.Program.runRootWithContext
+        Argparse.Program.runRootWithContext
             { name = "wc"
             , version = "1.0.0"
-            , command = MyCli.countCommand
+            , command = MyArgparse.countCommand
             , init =
                 \_env toProgram ->
                     Init.await FileSystem.initialize <| \fsPermission ->
                         toProgram { fs = fsPermission }
             , onCommand =
-                \env context (MyCli.Count { path }) ->
+                \env context (MyArgparse.Count { path }) ->
                     FileSystem.readFile context.fs path
                         |> Task.mapError FileSystem.errorToString
                         |> Task.andThen (\contents -> Stream.Log.line env.stdout contents)
-                        |> Task.map (\_ -> Cli.Program.Succeeded)
+                        |> Task.map (\_ -> Argparse.Program.Succeeded)
             }
 
 Parse errors, `--help`/`--version`, and the [Outcome](#Outcome)→exit-code
@@ -293,7 +293,7 @@ acquiring a permission performs no I/O.
 runRootWithContext :
     { name : String
     , version : String
-    , command : Cli.Parser.Command args flags cmd
+    , command : Argparse.Parser.Command args flags cmd
     , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task (Cmd a)
     , onCommand : Node.Environment -> context -> cmd -> Task String Outcome
     }
@@ -315,20 +315,20 @@ runRootWithContext { name, version, command, init, onCommand } =
                         Stream.Log.line env.stdout version
 
                     _ ->
-                        when Cli.Parser.runCommand name args { command | word = "" } is
-                            Cli.Parser.UnknownCommand cmdName ->
+                        when Argparse.Parser.runCommand name args { command | word = "" } is
+                            Argparse.Parser.UnknownCommand cmdName ->
                                 failWith (PP.text ("I don't recognize this command: " ++ cmdName))
 
-                            Cli.Parser.BadFlags err ->
-                                failWith (Cli.Parser.flagErrorPrettified err)
+                            Argparse.Parser.BadFlags err ->
+                                failWith (Argparse.Parser.flagErrorPrettified err)
 
-                            Cli.Parser.BadArguments err ->
-                                failWith (Cli.Parser.argumentErrorPrettified err)
+                            Argparse.Parser.BadArguments err ->
+                                failWith (Argparse.Parser.argumentErrorPrettified err)
 
-                            Cli.Parser.HelpText doc ->
+                            Argparse.Parser.HelpText doc ->
                                 Stream.Log.line env.stdout (PP.toString doc)
 
-                            Cli.Parser.Success cmd ->
+                            Argparse.Parser.Success cmd ->
                                 onCommand env context cmd
                                     |> applyOutcome
                                     |> Task.onError (\msg -> failWith (PP.text msg))

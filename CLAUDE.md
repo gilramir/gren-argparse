@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `gren-cli` is a Gren **package** (`youruser/cli`) for declarative command-line
 argument parsing, extracted from the Gren compiler's own CLI. It exposes three
-modules: `Cli.Parser`, `Cli.PrettyPrinter`, and `Cli.Program`. Target Gren is
+modules: `Argparse.Parser`, `Argparse.PrettyPrinter`, and `Argparse.Program`. Target Gren is
 `0.6.x` (`platform: node`).
 
 ## Commands
@@ -23,15 +23,15 @@ Validation is done by compiling and by the test suite.
   ./run-tests.sh   # gren make Main --output=app && node app
   ```
   Modeled on the `compiler-node` test harness. `tests/src/Main.gren`
-  wires the suites into the runner; `Test.Cli.Parser` covers command
-  dispatch, arg arities, and the flag tokenizer, and `Test.Cli.PrettyPrinter`
+  wires the suites into the runner; `Test.Argparse.Parser` covers command
+  dispatch, arg arities, and the flag tokenizer, and `Test.Argparse.PrettyPrinter`
   covers the `Document` renderer. These two are pure `Test.Test` suites; `Main`
   runs everything through `blaix/gren-effectful-tests`
   (`Test.Runner.Effectful`), lifting the pure suites with `Effectful.wrap` so
-  they sit alongside the I/O-driven `Cli.Program` suite. Uses `gren-lang/test` +
+  they sit alongside the I/O-driven `Argparse.Program` suite. Uses `gren-lang/test` +
   `gren-lang/test-runner-node` + `blaix/gren-effectful-tests`. The build
   artifact (`tests/app`) and `tests/gren_packages/` are gitignored.
-- **Exit-code integration tests:** `Test.Cli.Program`. `Cli.Program` does I/O
+- **Exit-code integration tests:** `Test.Argparse.Program`. `Argparse.Program` does I/O
   and sets the process exit code, so it can't be covered by a *pure* suite —
   awaiting its work in the test process would clobber the runner's own exit
   code. Instead this suite uses `Test.Runner.Effectful`'s `await`/`awaitError`
@@ -54,13 +54,13 @@ Validation is done by compiling and by the test suite.
   ./run.sh --help
   ```
   The subdirectories cover the runner styles: `no-subcommand/`
-  (`Cli.Program.runRoot` — flags/args, no command word), `one-level/`
-  (`Cli.Program.run` + `withCommand`), `two-level/` (`withPrefix`, nested
-  sub-commands), `manual/` (`Cli.Parser.run` by hand, custom exit code), and
-  `with-permissions/` (`Cli.Program.runWithContext`, a `count <file>` command
+  (`Argparse.Program.runRoot` — flags/args, no command word), `one-level/`
+  (`Argparse.Program.run` + `withCommand`), `two-level/` (`withPrefix`, nested
+  sub-commands), `manual/` (`Argparse.Parser.run` by hand, custom exit code), and
+  `with-permissions/` (`Argparse.Program.runWithContext`, a `count <file>` command
   acquiring a `FileSystem.Permission`; also exercises all three `Outcome` exit
   paths — non-empty file → 0, empty file → `Failed`/1, missing file → task
-  error/1), and `root-with-permissions/` (`Cli.Program.runRootWithContext` — the
+  error/1), and `root-with-permissions/` (`Argparse.Program.runRootWithContext` — the
   rootless `wc <file>` tool acquiring a `FileSystem.Permission`, i.e.
   `runRoot` + context; same three `Outcome` paths). Each `run.sh` builds the **module
   name** `Main` (not the path `src/Main.gren`: gren 0.6.5 rejects the path form
@@ -75,24 +75,24 @@ The core contract is purity: parsing is `Array String -> CommandParseResult resu
 a pure function that does **no I/O** and never exits the process. It returns one
 of five `CommandParseResult` constructors (`UnknownCommand`, `BadFlags`,
 `BadArguments`, `HelpText`, `Success a`); the caller decides what to print and
-which exit code to use. `Cli.Program.run` is the opinionated wrapper that does
+which exit code to use. `Argparse.Program.run` is the opinionated wrapper that does
 the obvious thing (errors → stderr + exit 1, help → stdout, success → your
-handler). The handler returns a `Task String Cli.Program.Outcome`: succeeding
+handler). The handler returns a `Task String Argparse.Program.Outcome`: succeeding
 with `Succeeded` exits 0, succeeding with `Failed` exits 1 *silently* (a failed
 check — you printed your own report), and failing the task prints the `String`
 to stderr and exits 1. The handler never calls `Node.setExitCode`; that mapping
-lives in `applyOutcome`. `Cli.Program` only ever exits 0 or 1 — needing another
-code (e.g. 2) means dropping to `Cli.Parser.run` (see `examples/manual/`).
-`Cli.Program.runWithContext` is the same, but lets the caller run
+lives in `applyOutcome`. `Argparse.Program` only ever exits 0 or 1 — needing another
+code (e.g. 2) means dropping to `Argparse.Parser.run` (see `examples/manual/`).
+`Argparse.Program.runWithContext` is the same, but lets the caller run
 their own `Init.await` chain first (to acquire `FileSystem`/terminal/etc.
 permissions) and threads the resulting *context* into the handler — `run` is
-just `runWithContext` with an empty context. `Cli.Program.runRoot` is the
+just `runWithContext` with an empty context. `Argparse.Program.runRoot` is the
 no-sub-command variant: it takes a single `Command` (not an `App`) and calls
-`Cli.Parser.runCommand` — which parses flags/args directly, without consuming a
+`Argparse.Parser.runCommand` — which parses flags/args directly, without consuming a
 command word — so a tool can be invoked as `mytool --loud World`.
-`Cli.Program.runRootWithContext` is `runRoot` + context — the rootless analog of
+`Argparse.Program.runRootWithContext` is `runRoot` + context — the rootless analog of
 `runWithContext` (and `runRoot` is just it with an empty context, mirroring how
-`run` relates to `runWithContext`). So the four `Cli.Program` runners form a 2×2:
+`run` relates to `runWithContext`). So the four `Argparse.Program` runners form a 2×2:
 {command-word `run` / rootless `runRoot`} × {no context / `…WithContext`}.
 Anything needing custom exit codes or its own model/update loop skips these
 wrappers and matches on `CommandParseResult` directly.
@@ -141,7 +141,7 @@ bridges parsed input into the user's own command sum type. A `ValueParser`
 conversion and powers both arguments and value flags; built-ins are
 `pathParser` and `grenFileParser`.
 
-### Tokenizing (`parseRawTokens` in `Cli.Parser`)
+### Tokenizing (`parseRawTokens` in `Argparse.Parser`)
 
 Splits raw tokens into a `Dict String String` of flags plus an args array.
 Supports both `--flag=value` and `--flag value` (the bare form peeks at the next
@@ -150,13 +150,13 @@ token via `handleBareFlag` and only consumes it if it doesn't look like another
 Empty-string flag value is the sentinel for "present but no value yet", which
 later distinguishes a toggle from a value flag missing its value.
 
-### Pretty printing (`Cli.PrettyPrinter`)
+### Pretty printing (`Argparse.PrettyPrinter`)
 
 An opaque `Document` ADT (`Empty`, `Text`, `Words`, `Colorized`, `Indented`,
 `Block`, `VerticalBlock`) rendered by `toString`. All help and error output is
 built from these combinators — `text`, `words` (wraps on word boundaries),
 `block` (horizontal), `verticalBlock`, `indent`, `color`/`intenseColor`
-(ANSI). The error/help renderers in `Cli.Parser`
+(ANSI). The error/help renderers in `Argparse.Parser`
 (`argumentErrorPrettified`, `flagErrorPrettified`, `commandHelpText`, etc.)
 return `Document`s, keeping output formatting separate from I/O.
 

@@ -1,7 +1,7 @@
 module Main exposing (main)
 
 {-| A CLI with **one level** of sub-commands: `todo add <text>` and
-`todo list`. Built with `Cli.Program.run` and `Cli.Parser.withCommand`.
+`todo list`. Built with `Argparse.Program.run` and `Argparse.Parser.withCommand`.
 
     ./run.sh add "buy milk"
     ./run.sh add "call mum" --done
@@ -9,9 +9,9 @@ module Main exposing (main)
     ./run.sh --help
 -}
 
-import Cli.Parser
-import Cli.PrettyPrinter as PP
-import Cli.Program
+import Argparse.Parser
+import Argparse.PrettyPrinter as PP
+import Argparse.Program
 import Node
 import Stream.Log
 import Task
@@ -22,24 +22,24 @@ type Command
     | List
 
 
-parser : Cli.Parser.App Command
+parser : Argparse.Parser.App Command
 parser =
     { name = "todo"
     , version = "1.0.0"
     , intro = PP.words "A tiny todo CLI."
     , outro = PP.empty
     , commands =
-        Cli.Parser.defineGroup
-            |> Cli.Parser.withCommand
+        Argparse.Parser.defineGroup
+            |> Argparse.Parser.withCommand
                 { word = "add"
                 , arguments =
-                    Cli.Parser.oneArg
+                    Argparse.Parser.oneArg
                         { value = textParser
                         , help = "The task description"
                         }
                 , flags =
-                    Cli.Parser.initFlags (\done -> { done = done })
-                        |> Cli.Parser.toggle "done" "Mark the task done immediately"
+                    Argparse.Parser.initFlags (\done -> { done = done })
+                        |> Argparse.Parser.toggle "done" "Mark the task done immediately"
                 , commonDescription =
                     Just "Add a task to the list."
                 , summary =
@@ -50,12 +50,12 @@ parser =
                     \text flags ->
                         Add { text = text, done = flags.done }
                 }
-            |> Cli.Parser.withCommand
+            |> Argparse.Parser.withCommand
                 { word = "list"
                 , arguments =
-                    Cli.Parser.noArgs
+                    Argparse.Parser.noArgs
                 , flags =
-                    Cli.Parser.noFlags
+                    Argparse.Parser.noFlags
                 , commonDescription =
                     Just "Show every task."
                 , summary =
@@ -71,7 +71,7 @@ parser =
 
 main : Node.SimpleProgram a
 main =
-    Cli.Program.run
+    Argparse.Program.run
         { parser = parser
         , onCommand =
             \env cmd ->
@@ -83,11 +83,11 @@ main =
                     List ->
                         Stream.Log.line env.stdout "(this demo keeps no state, so the list is always empty)"
                 )
-                    |> Task.map (\_ -> Cli.Program.Succeeded)
+                    |> Task.map (\_ -> Argparse.Program.Succeeded)
         }
 
 
-textParser : Cli.Parser.ValueParser String
+textParser : Argparse.Parser.ValueParser String
 textParser =
     { label = "text"
     , fn = Just

@@ -1,7 +1,7 @@
 module Main exposing (main)
 
 {-| A CLI with **no sub-command** — just flags and an argument, like
-`greet --loud World`. Built with `Cli.Program.runRoot`, which parses a single
+`greet --loud World`. Built with `Argparse.Program.runRoot`, which parses a single
 command without first consuming a command word.
 
     ./run.sh World            # Hello, World.
@@ -10,9 +10,9 @@ command without first consuming a command word.
     ./run.sh --version
 -}
 
-import Cli.Parser
-import Cli.PrettyPrinter as PP
-import Cli.Program
+import Argparse.Parser
+import Argparse.PrettyPrinter as PP
+import Argparse.Program
 import Node
 import Stream.Log
 import Task
@@ -22,17 +22,17 @@ type Command
     = Greet { name : String, loud : Bool }
 
 
-command : Cli.Parser.Command String { loud : Bool } Command
+command : Argparse.Parser.Command String { loud : Bool } Command
 command =
     { word = ""
     , arguments =
-        Cli.Parser.oneArg
+        Argparse.Parser.oneArg
             { value = nameParser
             , help = "Who to greet"
             }
     , flags =
-        Cli.Parser.initFlags (\loud -> { loud = loud })
-            |> Cli.Parser.toggle "loud" "Shout the greeting"
+        Argparse.Parser.initFlags (\loud -> { loud = loud })
+            |> Argparse.Parser.toggle "loud" "Shout the greeting"
     , commonDescription =
         Nothing
     , summary =
@@ -47,7 +47,7 @@ command =
 
 main : Node.SimpleProgram a
 main =
-    Cli.Program.runRoot
+    Argparse.Program.runRoot
         { name = "greet"
         , version = "1.0.0"
         , command = command
@@ -56,7 +56,7 @@ main =
                 when cmd is
                     Greet { name, loud } ->
                         Stream.Log.line env.stdout (greeting name loud)
-                            |> Task.map (\_ -> Cli.Program.Succeeded)
+                            |> Task.map (\_ -> Argparse.Program.Succeeded)
         }
 
 
@@ -73,7 +73,7 @@ greeting name loud =
         base ++ "."
 
 
-nameParser : Cli.Parser.ValueParser String
+nameParser : Argparse.Parser.ValueParser String
 nameParser =
     { label = "name"
     , fn = Just

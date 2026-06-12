@@ -1,8 +1,8 @@
-module Test.Cli.Program exposing (tests)
+module Test.Argparse.Program exposing (tests)
 
-{-| Integration tests for `Cli.Program`'s `Outcome` → exit-code mapping.
+{-| Integration tests for `Argparse.Program`'s `Outcome` → exit-code mapping.
 
-`Cli.Program` does I/O and sets the process exit code, so it can't be exercised
+`Argparse.Program` does I/O and sets the process exit code, so it can't be exercised
 by the pure `gren-lang/test` suite: awaiting its work *in the test process*
 would clobber the runner's own exit code. Instead we drive built example
 programs as child processes (via `ChildProcess.run`) and assert on the
@@ -11,8 +11,8 @@ Gren-native replacement for the old `tests/exit-codes.sh`.
 
 Two examples route all three outcomes through one file-reading command:
 
-  - non-empty file → `Cli.Program.Succeeded` → exit 0, size on stdout
-  - empty file     → `Cli.Program.Failed`    → exit 1, note on stderr
+  - non-empty file → `Argparse.Program.Succeeded` → exit 0, size on stdout
+  - empty file     → `Argparse.Program.Failed`    → exit 1, note on stderr
   - missing file   → task fails              → exit 1, error on stderr
 
 We run the same three assertions against both, since they cover the two
@@ -38,7 +38,7 @@ import Test.Runner.Effectful as Effectful exposing (Test, describe, await, await
 
 tests : ChildProcess.Permission -> Test
 tests cpPerm =
-    describe "Cli.Program (exit-code integration)"
+    describe "Argparse.Program (exit-code integration)"
         [ outcomeTests cpPerm
             { label = "runWithContext (with-permissions)"
             , dir = "../examples/with-permissions"
@@ -101,7 +101,7 @@ succeedsTest cpPerm dir args =
 
 failsQuietlyTest : ChildProcess.Permission -> String -> Array String -> Test
 failsQuietlyTest cpPerm dir args =
-    -- /dev/null reads as empty → Cli.Program.Failed → exit 1, note on stderr,
+    -- /dev/null reads as empty → Argparse.Program.Failed → exit 1, note on stderr,
     -- nothing on stdout.
     awaitError "count of an empty file"
         (runExample cpPerm dir args)

@@ -1,9 +1,9 @@
-module Test.Cli.Parser exposing (tests)
+module Test.Argparse.Parser exposing (tests)
 
 import Expect exposing (Expectation)
 import Test exposing (Test, describe, test)
-import Cli.Parser as Parser
-import Cli.PrettyPrinter as PP
+import Argparse.Parser as Parser
+import Argparse.PrettyPrinter as PP
 import FileSystem.Path as Path
 import Dict
 
