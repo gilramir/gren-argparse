@@ -99,9 +99,11 @@ matches on `CommandParseResult` directly.
    flags: `run` handles both as the first token; `runPrefix` handles `--help`
    right after a prefix word (so `mytool package --help` lists the prefix's
    commands rather than reporting `--help` as an unknown command); and
-   `runCommand` handles `--help` anywhere in a command's own tokens. `--version`
-   is only intercepted at the top level (`run`), since the version lives on the
-   `App`.
+   `runCommand` handles `--help` anywhere in a command's own tokens. `-h` is
+   honored as an alias for `--help` at all three sites — since it doesn't start
+   with `--`, the tokenizer leaves it in `args`, so `runCommand` scans the raw
+   tokens (`Array.member "-h"`) rather than the flags dict. `--version` is only
+   intercepted at the top level (`run`), since the version lives on the `App`.
 
 2. **Arguments** (`ArgumentParser`). Each parser consumes the *entire*
    positional-args array at once and reports `usage` (a string for the help
@@ -119,7 +121,8 @@ matches on `CommandParseResult` directly.
    compiler-checked. `FlagKind` is a sum type (`Toggle` | `TakesValue { title,
    examples }`) so a toggle structurally cannot carry a value type. Only
    `--long` flags exist; **no short flags** (the tokenizer treats anything not
-   starting with `--` as positional). Repeated flags = last-one-wins (no
+   starting with `--` as positional) — the sole exception is `-h`, special-cased
+   as an alias for `--help`. Repeated flags = last-one-wins (no
    count/append). Value flags are always optional (`Maybe`); there is no
    "required option" at the parse layer.
 

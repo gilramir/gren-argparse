@@ -69,6 +69,14 @@ tests =
             Expect.equal
                 (runCommand testCmd [])
                 (runCommand testCmd ["--help"])
+        , test "-h is an alias for --help at the top level" <| \{} ->
+            Expect.equal
+                (runCommand testCmd ["-h"])
+                (runCommand testCmd ["--help"])
+        , test "-h after a command is an alias for that command's --help" <| \{} ->
+            Expect.equal
+                (runCommand testCmd ["make", "-h"])
+                (runCommand testCmd ["make", "--help"])
         , test "The command name must match" <| \{} ->
             runCommand testCmd ["macbeth"]
                 |> Expect.equal (Parser.UnknownCommand "macbeth")
@@ -500,6 +508,10 @@ tests =
 
                     _ ->
                         Expect.fail "Expected help text"
+            , test "-h is an alias for --help" <| \{} ->
+                Expect.equal
+                    (Parser.runCommand "mytool" [ "-h" ] testCmd)
+                    (Parser.runCommand "mytool" [ "--help" ] testCmd)
             , test "An unknown flag is a flag error" <| \{} ->
                 Parser.runCommand "mytool" [ "--hiya" ] testCmd
                     |> expectBadFlag (Parser.FlagParserUnknownFlag { knownFlags = Dict.empty, flagName = "hiya" })
@@ -548,6 +560,10 @@ tests =
 
                     _ ->
                         Expect.fail "Expected the command's help text"
+            , test "`prefix -h` shows the prefix help, like `prefix --help`" <| \{} ->
+                Expect.equal
+                    (Parser.run [ "remote", "-h" ] prefixedApp)
+                    (Parser.run [ "remote", "--help" ] prefixedApp)
             , test "An unknown command under a prefix is reported" <| \{} ->
                 Parser.run [ "remote", "bogus" ] prefixedApp
                     |> Expect.equal (Parser.UnknownCommand "bogus")

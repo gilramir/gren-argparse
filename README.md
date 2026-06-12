@@ -121,8 +121,8 @@ A few things worth knowing:
 - **Flags** are built type-safely. `initFlags` seeds a record constructor;
   `toggle` adds a `Bool`, `flag` adds a `Maybe value`. Each chained combinator
   fills one constructor argument, so the flags record is compiler-checked. Only
-  `--long` flags exist; there are no short flags, and value flags are always
-  optional.
+  `--long` flags exist; there are no short flags (the lone exception is `-h`,
+  honored as an alias for `--help`), and value flags are always optional.
 - A **`ValueParser`** is the unit of type conversion, shared by arguments and
   value flags. It's just a record — write your own in a few lines:
 
@@ -134,7 +134,8 @@ A few things worth knowing:
 
   Built-ins: `pathParser`, `grenFileParser`.
 
-`--help` and `--version` are handled for you; you don't declare them.
+`--help` (and its alias `-h`) and `--version` are handled for you; you don't
+declare them.
 
 ## 3. Run it
 
