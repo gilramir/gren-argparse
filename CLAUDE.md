@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`gren-cli` is a Gren **package** (`youruser/cli`) for declarative command-line
+`gren-argparse` is a Gren **package** (`gilramir/gren-argparse`) for declarative command-line
 argument parsing, extracted from the Gren compiler's own CLI. It exposes three
 modules: `Argparse.Parser`, `Argparse.PrettyPrinter`, and `Argparse.Program`. Target Gren is
 `0.6.x` (`platform: node`).

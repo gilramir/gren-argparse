@@ -15,7 +15,7 @@ main =
     Node.defineSimpleProgram <| \env ->
         Init.await ChildProcess.initialize <| \cpPerm ->
             run env <|
-                describe "youruser/cli tests"
+                describe "gilramir/gren-argparse tests"
                     -- The pure suites stay plain `Test.Test`; `wrap` lifts them
                     -- into the effectful runner alongside the I/O-driven
                     -- Argparse.Program suite.

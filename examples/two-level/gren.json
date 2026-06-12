@@ -9,7 +9,7 @@
         "direct": {
             "gren-lang/core": "7.4.2",
             "gren-lang/node": "6.1.0",
-            "youruser/cli": "local:../../"
+            "gilramir/gren-argparse": "local:../../"
         },
         "indirect": {
             "gren-lang/url": "6.0.0"

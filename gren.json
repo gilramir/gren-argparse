@@ -1,7 +1,7 @@
 {
     "type": "package",
     "platform": "node",
-    "name": "youruser/cli",
+    "name": "gilramir/gren-argparse",
     "summary": "Declarative command-line argument parsing with built-in help",
     "license": "BSD-3-Clause",
     "version": "1.0.0",
