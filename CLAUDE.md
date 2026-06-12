@@ -5,9 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `gren-argparse` is a Gren **package** (`gilramir/gren-argparse`) for declarative command-line
-argument parsing, extracted from the Gren compiler's own CLI. It exposes three
+argument parsing, extracted from the Gren compiler's own CLI. (This is the directory
+formerly named `gren-cli`.) It exposes three
 modules: `Argparse.Parser`, `Argparse.PrettyPrinter`, and `Argparse.Program`. Target Gren is
-`0.6.x` (`platform: node`).
+`0.6.x` (`platform: node`). Its first consumer is the sibling `gren-format` repo —
+the standalone `gren-format` CLI depends on it locally (`gilramir/gren-argparse: local:../gren-argparse`).
 
 ## Commands
 
@@ -17,7 +19,7 @@ Validation is done by compiling and by the test suite.
 - **Generate docs (also a strong correctness check — fails on missing/broken
   `@docs`):** `gren docs`.
 - **Run the test suite** (`tests/`, a `node` application that depends on the
-  package via `"youruser/cli": "local:../"`):
+  package via `"gilramir/gren-argparse": "local:../"`):
   ```bash
   cd tests
   ./run-tests.sh   # gren make Main --output=app && node app
@@ -46,7 +48,7 @@ Validation is done by compiling and by the test suite.
   (This replaced the old `tests/exit-codes.sh` bash script.)
 - **Build and run an example.** `examples/` holds one self-contained `node`
   app per scenario, each depending on the package via
-  `"youruser/cli": "local:../../"` and carrying its own `run.sh` (the same
+  `"gilramir/gren-argparse": "local:../../"` and carrying its own `run.sh` (the same
   `gren make Main --output=app && node app "$@"` form as `tests/run-tests.sh`):
   ```bash
   cd examples/one-level
