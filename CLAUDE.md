@@ -57,7 +57,9 @@ Validation is done by compiling and by the test suite.
   `with-permissions/` (`Cli.Program.runWithContext`, a `count <file>` command
   acquiring a `FileSystem.Permission`; also exercises all three `Outcome` exit
   paths — non-empty file → 0, empty file → `Failed`/1, missing file → task
-  error/1). Each `run.sh` builds the **module
+  error/1), and `root-with-permissions/` (`Cli.Program.runRootWithContext` — the
+  rootless `wc <file>` tool acquiring a `FileSystem.Permission`, i.e.
+  `runRoot` + context; same three `Outcome` paths). Each `run.sh` builds the **module
   name** `Main` (not the path `src/Main.gren`: gren 0.6.5 rejects the path form
   with a `<module-names>` error) into an **executable** `app` (not `app.js`,
   which is a *library module* that exports `Main.init` without calling it, so it
@@ -84,9 +86,13 @@ permissions) and threads the resulting *context* into the handler — `run` is
 just `runWithContext` with an empty context. `Cli.Program.runRoot` is the
 no-sub-command variant: it takes a single `Command` (not an `App`) and calls
 `Cli.Parser.runCommand` — which parses flags/args directly, without consuming a
-command word — so a tool can be invoked as `mytool --loud World`. Anything
-needing custom exit codes or its own model/update loop skips these wrappers and
-matches on `CommandParseResult` directly.
+command word — so a tool can be invoked as `mytool --loud World`.
+`Cli.Program.runRootWithContext` is `runRoot` + context — the rootless analog of
+`runWithContext` (and `runRoot` is just it with an empty context, mirroring how
+`run` relates to `runWithContext`). So the four `Cli.Program` runners form a 2×2:
+{command-word `run` / rootless `runRoot`} × {no context / `…WithContext`}.
+Anything needing custom exit codes or its own model/update loop skips these
+wrappers and matches on `CommandParseResult` directly.
 
 ### Three layers, composed by the user
 

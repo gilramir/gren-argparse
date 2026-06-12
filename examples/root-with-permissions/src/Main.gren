@@ -1,0 +1,103 @@
+module Main exposing (main)
+
+{-| Demonstrates `Cli.Program.runRootWithContext`: the rootless counterpart to
+`runWithContext`. There is **no sub-command word** — the tool is invoked as
+`wc <file>` — *and* the handler needs a `FileSystem.Permission`, acquired up
+front in the initialization phase and threaded through as the program's
+*context*.
+
+Like the `with-permissions` example, it exercises all three `Outcome` paths:
+
+  - a **missing** file fails the task, so its error message goes to stderr and
+    the program exits `1`;
+  - an **empty** file is treated as a failed check — the handler returns
+    `Cli.Program.Failed`, which exits `1` after printing its own note;
+  - a **non-empty** file exits `0` via `Cli.Program.Succeeded`.
+
+    ./run.sh gren.json        # prints the size, exits 0
+    ./run.sh /no/such/file    # stderr error, exits 1
+    ./run.sh /dev/null        # "empty file", exits 1
+    ./run.sh --help
+    ./run.sh --version
+-}
+
+import Bytes
+import Cli.Parser
+import Cli.PrettyPrinter as PP
+import Cli.Program
+import FileSystem
+import FileSystem.Path as Path exposing (Path)
+import Init
+import Node
+import Stream.Log
+import Task
+
+
+type Command
+    = Count { path : Path }
+
+
+type alias Context =
+    { fs : FileSystem.Permission }
+
+
+command : Cli.Parser.Command Path {} Command
+command =
+    { word = ""
+    , arguments =
+        Cli.Parser.oneArg
+            { value = Cli.Parser.pathParser
+            , help = "The file to measure"
+            }
+    , flags =
+        Cli.Parser.noFlags
+    , commonDescription =
+        Nothing
+    , summary =
+        "Reports a file's size in bytes:"
+    , example =
+        PP.words "wc gren.json"
+    , builder =
+        \path _flags ->
+            Count { path = path }
+    }
+
+
+main : Node.SimpleProgram a
+main =
+    Cli.Program.runRootWithContext
+        { name = "wc"
+        , version = "1.0.0"
+        , command = command
+        , init =
+            \_env toProgram ->
+                Init.await FileSystem.initialize <| \fsPermission ->
+                    toProgram { fs = fsPermission }
+        , onCommand =
+            \env context cmd ->
+                when cmd is
+                    Count { path } ->
+                        FileSystem.readFile context.fs path
+                            -- A read error (e.g. no such file) fails the task,
+                            -- so the runner prints this to stderr and exits 1.
+                            |> Task.mapError FileSystem.errorToString
+                            |> Task.andThen
+                                (\contents ->
+                                    if Bytes.length contents == 0 then
+                                        -- Ran fine, but the answer is "no": a
+                                        -- failed check. Print our own note and
+                                        -- exit 1 with no extra diagnostic.
+                                        Stream.Log.line env.stderr
+                                            (Path.toPosixString path ++ " is empty")
+                                            |> Task.map (\_ -> Cli.Program.Failed)
+
+                                    else
+                                        Stream.Log.line env.stdout
+                                            (Path.toPosixString path
+                                                ++ ": "
+                                                ++ String.fromInt (Bytes.length contents)
+                                                ++ " bytes"
+                                            )
+                                            |> Task.map (\_ -> Cli.Program.Succeeded)
+                                )
+        }

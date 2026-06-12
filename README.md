@@ -221,8 +221,8 @@ trailing `|> Task.map (\_ -> Cli.Program.Succeeded)`.
 
 ## Choosing a runner
 
-`Cli.Program` offers three entry points; reach for the lowest-ceremony one that
-fits.
+`Cli.Program` offers four entry points, forming a 2×2 of {command-word vs.
+rootless} × {plain vs. context}; reach for the lowest-ceremony one that fits.
 
 - **`run`** — the standard case: an `App` with one or more command words.
   (`examples/one-level/`, `examples/two-level/`.)
@@ -237,6 +237,9 @@ fits.
   handed the environment and a continuation; `Init.await` whatever you need,
   then call the continuation with a *context* value that is passed to every
   `onCommand`. (`examples/with-permissions/`.)
+- **`runRootWithContext`** — the rootless tool *and* the up-front permission
+  acquisition together: `runRoot` with the `init`/context mechanism of
+  `runWithContext`. (`examples/root-with-permissions/`.)
 
 If you need something these don't give you — a custom exit code, a full
 model/update loop — skip `Cli.Program` and call `Cli.Parser.run` directly,
@@ -257,6 +260,7 @@ try any example with `./run.sh <args>`:
 | `two-level/` | `withPrefix` — nested sub-commands | `./run.sh remote add origin` |
 | `manual/` | `Cli.Parser.run` by hand, with a custom exit code | `./run.sh greet World --loud` |
 | `with-permissions/` | `runWithContext` — a `FileSystem.Permission`, plus all three exit outcomes | `./run.sh count gren.json` |
+| `root-with-permissions/` | `runRootWithContext` — rootless + a `FileSystem.Permission` | `./run.sh gren.json` |
 
 ```bash
 cd examples/one-level

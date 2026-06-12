@@ -1,4 +1,4 @@
-module Cli.Program exposing ( Outcome(..), run, runWithContext, runRoot )
+module Cli.Program exposing ( Outcome(..), run, runWithContext, runRoot, runRootWithContext )
 
 {-| A convenience wrapper that turns a [Cli.Parser.App](Cli.Parser#App) into a
 ready-to-run Node program, handling the boilerplate most command-line tools
@@ -36,7 +36,7 @@ processes, …), you don't have to drop down that far: use
 [runWithContext](#runWithContext), which lets you run your own initialization
 before the command handler while keeping all of the boilerplate above.
 
-@docs Outcome, run, runWithContext, runRoot
+@docs Outcome, run, runWithContext, runRoot, runRootWithContext
 -}
 
 import Cli.Parser
@@ -228,6 +228,10 @@ is the [Cli.Parser.runCommand](Cli.Parser#runCommand) counterpart to
 command's own `word` is ignored (the help line reads `name <args>`), so you can
 leave it empty. The [Outcome](#Outcome)→exit-code mapping works as in
 [run](#run).
+
+If the command needs subsystem permissions, use
+[runRootWithContext](#runRootWithContext) — this is just that with an empty
+context, the same way [run](#run) relates to [runWithContext](#runWithContext).
 -}
 runRoot :
     { name : String
@@ -237,35 +241,94 @@ runRoot :
     }
     -> Node.SimpleProgram a
 runRoot { name, version, command, onCommand } =
+    runRootWithContext
+        { name = name
+        , version = version
+        , command = command
+        , init = \_env toProgram -> toProgram {}
+        , onCommand = \env _context cmd -> onCommand env cmd
+        }
+
+
+{-| Like [runRoot](#runRoot), but with a chance to initialize subsystems and
+acquire permissions before the command runs — the rootless counterpart to
+[runWithContext](#runWithContext). Use it for a no-sub-command tool
+(`mytool --loud World`) whose handler still needs a `FileSystem.Permission`, a
+`Terminal` configuration, child-process access, and so on.
+
+`init` is given the [Node.Environment](Node#Environment) and a continuation
+(`toProgram`). Acquire whatever you need with `Init.await`, then call
+`toProgram` with a *context* value of your choosing; that same value is later
+handed to `onCommand`.
+
+    import FileSystem
+    import Init
+
+    type alias Context =
+        { fs : FileSystem.Permission }
+
+    main : Node.SimpleProgram a
+    main =
+        Cli.Program.runRootWithContext
+            { name = "wc"
+            , version = "1.0.0"
+            , command = MyCli.countCommand
+            , init =
+                \_env toProgram ->
+                    Init.await FileSystem.initialize <| \fsPermission ->
+                        toProgram { fs = fsPermission }
+            , onCommand =
+                \env context (MyCli.Count { path }) ->
+                    FileSystem.readFile context.fs path
+                        |> Task.mapError FileSystem.errorToString
+                        |> Task.andThen (\contents -> Stream.Log.line env.stdout contents)
+                        |> Task.map (\_ -> Cli.Program.Succeeded)
+            }
+
+Parse errors, `--help`/`--version`, and the [Outcome](#Outcome)→exit-code
+mapping are handled exactly as in [runRoot](#runRoot). The `context` is acquired
+up front, so it is available even on the help/error paths; that's harmless, since
+acquiring a permission performs no I/O.
+-}
+runRootWithContext :
+    { name : String
+    , version : String
+    , command : Cli.Parser.Command args flags cmd
+    , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task (Cmd a)
+    , onCommand : Node.Environment -> context -> cmd -> Task String Outcome
+    }
+    -> Node.SimpleProgram a
+runRootWithContext { name, version, command, init, onCommand } =
     Node.defineSimpleProgram <| \env ->
-        let
-            args =
-                Array.dropFirst 2 env.args
+        init env <| \context ->
+            let
+                args =
+                    Array.dropFirst 2 env.args
 
-            failWith doc =
-                Stream.Log.line env.stderr (PP.toString doc)
-                    |> Task.andThen (\_ -> Node.setExitCode 1)
-        in
-        Node.endSimpleProgram <|
-            when Array.first args is
-                Just "--version" ->
-                    Stream.Log.line env.stdout version
+                failWith doc =
+                    Stream.Log.line env.stderr (PP.toString doc)
+                        |> Task.andThen (\_ -> Node.setExitCode 1)
+            in
+            Node.endSimpleProgram <|
+                when Array.first args is
+                    Just "--version" ->
+                        Stream.Log.line env.stdout version
 
-                _ ->
-                    when Cli.Parser.runCommand name args { command | word = "" } is
-                        Cli.Parser.UnknownCommand cmdName ->
-                            failWith (PP.text ("I don't recognize this command: " ++ cmdName))
+                    _ ->
+                        when Cli.Parser.runCommand name args { command | word = "" } is
+                            Cli.Parser.UnknownCommand cmdName ->
+                                failWith (PP.text ("I don't recognize this command: " ++ cmdName))
 
-                        Cli.Parser.BadFlags err ->
-                            failWith (Cli.Parser.flagErrorPrettified err)
+                            Cli.Parser.BadFlags err ->
+                                failWith (Cli.Parser.flagErrorPrettified err)
 
-                        Cli.Parser.BadArguments err ->
-                            failWith (Cli.Parser.argumentErrorPrettified err)
+                            Cli.Parser.BadArguments err ->
+                                failWith (Cli.Parser.argumentErrorPrettified err)
 
-                        Cli.Parser.HelpText doc ->
-                            Stream.Log.line env.stdout (PP.toString doc)
+                            Cli.Parser.HelpText doc ->
+                                Stream.Log.line env.stdout (PP.toString doc)
 
-                        Cli.Parser.Success cmd ->
-                            onCommand env cmd
-                                |> applyOutcome
-                                |> Task.onError (\msg -> failWith (PP.text msg))
+                            Cli.Parser.Success cmd ->
+                                onCommand env context cmd
+                                    |> applyOutcome
+                                    |> Task.onError (\msg -> failWith (PP.text msg))
