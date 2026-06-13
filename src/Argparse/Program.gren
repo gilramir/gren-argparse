@@ -27,9 +27,11 @@ found problems, a test runner with failing tests, a `grep` that matched
 nothing. See [Outcome](#Outcome).
 
 This is opinionated on purpose. Programs that need a *different* exit code (say
-`2`), or a full model/update loop, should skip this module and call
-[Argparse.Parser.run](Argparse.Parser#run) directly inside their own `Node` program. See
-`examples/manual/`.
+`2`), or a full model/update loop, should skip this module entirely: call
+[Argparse.Parser.run](Argparse.Parser#run) inside your own `Node.defineSimpleProgram`,
+match on each [CommandParseResult](Argparse.Parser#CommandParseResult) constructor by hand,
+and call `Node.setExitCode` yourself wherever you need it. See `examples/manual/`
+for a complete working example that exits `2` on usage errors.
 
 If all you need is access to subsystem permissions (filesystem, terminal, child
 processes, …), you don't have to drop down that far: use
@@ -59,6 +61,11 @@ didn't pass, a search with no matches, a build that found errors. It exits `1`
 *silently*, on the assumption you've already printed your own report. If instead
 you want to surface an error *message*, fail the task (`Task.fail "…"`) rather
 than returning `Failed`; that string goes to stderr (also exit `1`).
+
+This module only ever exits `0` or `1`. If you need a different code (e.g. `2`
+for a usage error, following POSIX convention), skip `Argparse.Program` and match
+on [CommandParseResult](Argparse.Parser#CommandParseResult) directly, calling
+`Node.setExitCode` yourself. See `examples/manual/`.
 
     check : Node.Environment -> Cmd -> Task String Argparse.Program.Outcome
     check env cmd =
