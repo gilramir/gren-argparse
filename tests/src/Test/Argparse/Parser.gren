@@ -485,6 +485,35 @@ tests =
                     _ ->
                         Expect.fail "Expected help text"
             ]
+        , describe "Short flags"
+            [ test "Short toggle (-d) works as alias for long toggle (--debug)" <| \{} ->
+                expectParseSuccess (cmdBuilder testArgParser testFlagsWithShortAliases) [ "make", "-d" ] <| \cmd ->
+                    Expect.equal True cmd.flags.debug
+            , test "Short value flag (-o value) works as alias for long value flag (--output=value)" <| \{} ->
+                expectParseSuccess (cmdBuilder testArgParser testFlagsWithShortAliases) [ "make", "-o", "out" ] <| \cmd ->
+                    Expect.equal (Just <| Path.fromPosixString "out") cmd.flags.output
+            , test "Short value flag with = (-o=value) works" <| \{} ->
+                expectParseSuccess (cmdBuilder testArgParser testFlagsWithShortAliases) [ "make", "-o=out" ] <| \cmd ->
+                    Expect.equal (Just <| Path.fromPosixString "out") cmd.flags.output
+            , test "Long and short form produce the same result" <| \{} ->
+                let
+                    shortResult =
+                        runCommand (cmdBuilder testArgParser testFlagsWithShortAliases) [ "make", "-d", "-o", "out", "src/Main.gren" ]
+
+                    longResult =
+                        runCommand (cmdBuilder testArgParser testFlagsWithShortAliases) [ "make", "--debug", "--output=out", "src/Main.gren" ]
+                in
+                Expect.equal longResult shortResult
+            , test "ShortOnly flag (-v) is recognized" <| \{} ->
+                expectParseSuccess (cmdBuilder testArgParser testFlagsShortOnly) [ "make" ] <| \cmd ->
+                    Expect.equal False cmd.flags.v
+            , test "ShortOnly flag (-v) is set when passed" <| \{} ->
+                expectParseSuccess (cmdBuilder testArgParser testFlagsShortOnly) [ "make", "-v" ] <| \cmd ->
+                    Expect.equal True cmd.flags.v
+            , test "Unknown short flag gives UnknownFlag error" <| \{} ->
+                runCommand testCmd [ "make", "-x" ]
+                    |> expectBadFlag (Parser.FlagParserUnknownFlag { knownFlags = Dict.empty, flagName = "-x" })
+            ]
         , describe "runCommand (no command word)" <|
             let
                 oneArgCmd =
@@ -674,8 +703,24 @@ testFlags =
                     , output = output
                     }
                 )
-                |> Parser.toggle "debug" "debug desc"
-                |> Parser.flag "output" Parser.pathParser "output path"
+                |> Parser.toggle (Parser.LongOnly "debug") "debug desc"
+                |> Parser.flag (Parser.LongOnly "output") Parser.pathParser "output path"
+
+
+testFlagsWithShortAliases =
+    Parser.initFlags
+                (\debug output ->
+                    { debug = debug
+                    , output = output
+                    }
+                )
+                |> Parser.toggle (Parser.Both { long = "debug", short = "d" }) "debug desc"
+                |> Parser.flag (Parser.Both { long = "output", short = "o" }) Parser.pathParser "output path"
+
+
+testFlagsShortOnly =
+    Parser.initFlags (\v -> { v = v })
+        |> Parser.toggle (Parser.ShortOnly "v") "verbose"
 
 
 cmdBuilder argParser flagParser =

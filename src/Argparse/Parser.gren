@@ -1,4 +1,4 @@
-module Argparse.Parser exposing 
+module Argparse.Parser exposing
     ( App
     , CommandParseResult(..)
     , run
@@ -28,6 +28,7 @@ module Argparse.Parser exposing
     , oneOfArgs
     --
     , FlagParser
+    , FlagName(..)
     , FlagParserError(..)
     , flagErrorPrettified
     , noFlags
@@ -65,7 +66,7 @@ Into a data structure.
 
 ## Flags
 
-@docs FlagParser, FlagParserError, flagErrorPrettified, noFlags, initFlags, toggle, flag
+@docs FlagParser, FlagName, FlagParserError, flagErrorPrettified, noFlags, initFlags, toggle, flag
 
 ## Common parsers
 
@@ -99,7 +100,7 @@ type alias App result =
 {-| A parser for a group, or collection, of commands.
 -}
 type GroupParser result
-    = GroupParser 
+    = GroupParser
         { knownCommands : Dict String (Maybe String)
         , parseFn : String -> String -> Array String -> CommandParseResult result
         }
@@ -111,7 +112,7 @@ need to use [withCommand](#withCommand) and [withPrefix](#withPrefix).
 defineGroup : GroupParser result
 defineGroup =
     GroupParser
-        { knownCommands = Dict.empty 
+        { knownCommands = Dict.empty
         , parseFn = \_appName name _args ->
             UnknownCommand name
         }
@@ -123,8 +124,8 @@ wins.
 -}
 withCommand : Command args flags result -> GroupParser result -> GroupParser result
 withCommand command (GroupParser { knownCommands, parseFn = next }) =
-    GroupParser 
-        { knownCommands = 
+    GroupParser
+        { knownCommands =
             Dict.set command.word command.commonDescription knownCommands
         , parseFn = \appName name args ->
             if name /= command.word then
@@ -159,7 +160,7 @@ run tokens appDef =
     let
         (GroupParser { parseFn = parse }) =
             appDef.commands
-        
+
     in
         when Array.popFirst tokens is
             Just { first = command, rest = rawTokensAfterCommand } ->
@@ -182,7 +183,7 @@ appHelpText appDef =
     let
         (GroupParser { knownCommands }) =
             appDef.commands
-        
+
         commonCommands =
             knownCommands
                 |> Dict.mapAndKeepJust (\_name commonDescription -> commonDescription)
@@ -323,6 +324,22 @@ type CommandParseResult a
 parseRawTokens : KnownFlags -> Array String -> { flags : Dict String String, args : Array String }
 parseRawTokens knownFlags tokens =
     let
+        shortAliasMap : Dict String String
+        shortAliasMap =
+            Dict.foldl
+                (\key desc acc ->
+                    when desc.name is
+                        LongOnly _ ->
+                            acc
+
+                        ShortOnly short ->
+                            Dict.set short key acc
+
+                        Both { short } ->
+                            Dict.set short key acc
+                )
+                Dict.empty
+                knownFlags
 
         -- Split a "lhs=rhs" string (left-hand-side, right-hand-side),
         -- on the first equals sign ("="), but where the rhs can have ='s.
@@ -372,8 +389,8 @@ parseRawTokens knownFlags tokens =
         -- Special handling for flag tokens that do not have a "=" in them.
         -- This would be '--flag value', but not '--flag=value'
         handleBareFlag : String -> Array String -> { flags : Dict String String, args : Array String } -> { flags : Dict String String, args : Array String }
-        handleBareFlag withoutPrefix rest acc =
-            when Dict.get withoutPrefix knownFlags is
+        handleBareFlag canonKey rest acc =
+            when Dict.get canonKey knownFlags is
                 Just desc ->
                     -- Only a value-taking flag consumes the next token. A
                     -- toggle (or a value flag with no following token) just
@@ -387,13 +404,13 @@ parseRawTokens knownFlags tokens =
                                 in
 
                                 {- if we wanted to allow '--output --legal-filename',
-                                we would set the withoutPrefix/nextToken as key/value
+                                we would set the canonKey/nextToken as key/value
                                 here, and stepNext into the rest of the tokens.
                                     let
                                         restWithoutValue =
                                             Array.dropFirst 1 rest
                                     in
-                                    stepNext restWithoutValue { acc | flags = Dict.set withoutPrefix nextToken acc.flags }
+                                    stepNext restWithoutValue { acc | flags = Dict.set canonKey nextToken acc.flags }
                                 -}
 
                                 -- Check the next token; does it look like a --flag ?
@@ -403,7 +420,7 @@ parseRawTokens knownFlags tokens =
                                         restWithoutValue =
                                             Array.dropFirst 1 rest
                                     in
-                                    stepNext restWithoutValue { acc | flags = Dict.set withoutPrefix nextToken acc.flags }
+                                    stepNext restWithoutValue { acc | flags = Dict.set canonKey nextToken acc.flags }
 
                                 else
                                     -- It does look like a --flag. Even though we know
@@ -412,18 +429,44 @@ parseRawTokens knownFlags tokens =
                                     -- trigger the error handling to report either that
                                     -- the next flags is an unknown flag, or that
                                     -- this flag is missing a value.
-                                    stepNext rest { acc | flags = Dict.set withoutPrefix "" acc.flags }
+                                    stepNext rest { acc | flags = Dict.set canonKey "" acc.flags }
 
                             else
                                 -- No next token available to use as a value
-                                stepNext rest { acc | flags = Dict.set withoutPrefix "" acc.flags }
+                                stepNext rest { acc | flags = Dict.set canonKey "" acc.flags }
 
                         Toggle ->
-                            stepNext rest { acc | flags = Dict.set withoutPrefix "" acc.flags }
+                            stepNext rest { acc | flags = Dict.set canonKey "" acc.flags }
 
                 Nothing ->
                     -- Unknown flag. Treat as toggle (validation happens later)
-                    stepNext rest { acc | flags = Dict.set withoutPrefix "" acc.flags }
+                    stepNext rest { acc | flags = Dict.set canonKey "" acc.flags }
+
+        -- Handle a short flag token: '-a', '-a=value', or '-a value'
+        handleShortFlag : String -> Array String -> { flags : Dict String String, args : Array String } -> { flags : Dict String String, args : Array String }
+        handleShortFlag withoutDash rest acc =
+            let
+                maybeFlagValue =
+                    splitOnFirstEqual withoutDash
+            in
+            when maybeFlagValue is
+                Just { lhs = shortChar, rhs = value } ->
+                    -- "-a=value" form: resolve alias then store directly
+                    let
+                        resolvedKey =
+                            Dict.get shortChar shortAliasMap
+                                |> Maybe.withDefault ("-" ++ shortChar)
+                    in
+                    stepNext rest { acc | flags = Dict.set resolvedKey value acc.flags }
+
+                Nothing ->
+                    -- bare "-a" form: resolve alias then delegate to handleBareFlag
+                    let
+                        resolvedKey =
+                            Dict.get withoutDash shortAliasMap
+                                |> Maybe.withDefault ("-" ++ withoutDash)
+                    in
+                    handleBareFlag resolvedKey rest acc
 
         -- Step into the next token
         stepNext : Array String -> { flags: Dict String String, args: Array String } -> { flags: Dict String String, args: Array String }
@@ -442,6 +485,10 @@ parseRawTokens knownFlags tokens =
                             { acc | args = acc.args ++ remaining }
                         else
                             handleBareFlag withoutPrefix remaining acc
+
+                    else if String.startsWith "-" token && not (String.startsWith "--" token) then
+                        -- Short flag: "-a", "-a=value", or "-a value"
+                        handleShortFlag (String.dropFirst 1 token) remaining acc
 
                     else
                         -- The token is either '--flag=value' or 'arg'
@@ -471,22 +518,28 @@ runCommand appName rawTokens spec =
     let
         (FlagParser { knownFlags, parseFn = parseFlags }) = spec.flags
 
-        { flags, args } = parseRawTokens knownFlags rawTokens
+        helpFlagDesc =
+            { kind = Toggle
+            , description = "Show this help text"
+            , name = Both { long = "help", short = "h" }
+            }
+
+        knownFlagsWithHelp =
+            Dict.set "help" helpFlagDesc knownFlags
+
+        { flags, args } = parseRawTokens knownFlagsWithHelp rawTokens
 
         (ArgumentParser { parseFn = parseArgs }) = spec.arguments
 
     in
-    -- `-h` doesn't start with `--`, so the tokenizer leaves it in `args`
-    -- rather than `flags`; honor it as an alias for `--help` by scanning the
-    -- raw tokens directly.
-    if Dict.get "help" flags == Just "" || Array.member "-h" rawTokens then
-        -- The user gave a command and a --help / -h flag
+    if Dict.get "help" flags == Just "" then
+        -- The user gave a command and a --help or -h flag
         HelpText <| commandHelpText appName spec
 
     else
         when
             { argResult = parseArgs args
-            , flagResult = parseFlags knownFlags flags
+            , flagResult = parseFlags knownFlags (Dict.remove "help" flags)
             }
         is
             { argResult = Ok argValue, flagResult = Ok flagValues } ->
@@ -534,18 +587,9 @@ commandHelpText appName spec =
 
         flagDocument =
             Dict.foldl
-                (\flagName flagDescription acc ->
-                    let
-                        flagSuffix =
-                            when flagDescription.kind is
-                                Toggle ->
-                                    ""
-
-                                TakesValue { title } ->
-                                    "=<" ++ title ++ ">"
-                    in
+                (\_ flagDescription acc ->
                     Array.prepend acc
-                        [ PP.text ("--" ++ flagName ++ flagSuffix)
+                        [ PP.text (renderFlagDisplayLine flagDescription.name flagDescription.kind)
                             |> PP.color PP.Cyan
                         , PP.words flagDescription.description
                             |> PP.indent
@@ -648,7 +692,7 @@ argumentErrorPrettified err =
     when err is
         ArgumentParserWrongArity info ->
             PP.verticalBlock
-                [ PP.words <| 
+                [ PP.words <|
                     "I was expecting "
                         ++ String.fromInt info.expected
                         ++ " arguments, but seem to have received "
@@ -952,10 +996,10 @@ oneOfArgs argParsers =
                                 Just err ->
                                     Just err.value
                         )
-                        |> Maybe.withDefault 
+                        |> Maybe.withDefault
                             (Err <| ArgumentParserInvalidArgument
                                 { argument = String.join " " args
-                                , title = "<one-of>" 
+                                , title = "<one-of>"
                                 , examples = []
                                 }
                             )
@@ -968,7 +1012,7 @@ oneOfArgs argParsers =
 {-| Flags are prefixed with `--` and are meant to customize a command.
 -}
 type FlagParser val
-    = FlagParser 
+    = FlagParser
         { knownFlags : KnownFlags
         , parseFn : KnownFlags -> Dict String String -> Result FlagParserError val
         }
@@ -991,12 +1035,23 @@ type FlagKind
         }
 
 
+{-| The name(s) by which a flag is known on the command line. A flag may have
+a long form (`--verbose`), a short form (`-v`), or both. At least one must be
+provided when calling [toggle](#toggle) or [flag](#flag).
+-}
+type FlagName
+    = LongOnly String
+    | ShortOnly String
+    | Both { long : String, short : String }
+
+
 {-| Definition of a single flag: its `kind` (which determines whether it
-accepts a value) and a human-readable `description`.
+accepts a value), a human-readable `description`, and its [FlagName](#FlagName).
 -}
 type alias FlagParserDescription =
     { kind : FlagKind
     , description : String
+    , name : FlagName
     }
 
 
@@ -1023,7 +1078,7 @@ flagErrorPrettified err =
             PP.verticalBlock
                 [ PP.words "This flag doesn't take a value:"
                 , PP.empty
-                , PP.text ("--" ++ flagName)
+                , PP.text (renderFlagKey flagName)
                     |> PP.color PP.Red
                     |> PP.indent
                 , PP.empty
@@ -1035,35 +1090,30 @@ flagErrorPrettified err =
             PP.verticalBlock
                 [ PP.words "This flag needs more information:"
                 , PP.empty
-                , PP.text ("--" ++ flagName)
+                , PP.text (renderFlagKey flagName)
                     |> PP.color PP.Red
                     |> PP.indent
                 , describeFlagUse knownFlags flagName
                 ]
-        
+
         FlagParserInvalidValue { knownFlags, flagName } ->
             PP.verticalBlock
                 [ PP.words "This flag was passed an invalid value:"
                 , PP.empty
-                , PP.text ("--" ++ flagName)
+                , PP.text (renderFlagKey flagName)
                     |> PP.color PP.Red
                     |> PP.indent
                 , describeFlagUse knownFlags flagName
                 ]
-        
+
         FlagParserUnknownFlag { knownFlags, flagName } ->
             let
                 otherFlags =
                     Dict.foldl
-                        (\name desc doc ->
-                            when desc.kind is
-                                Toggle ->
-                                    Array.pushLast (PP.text <| "--" ++ name) doc
-
-                                TakesValue { title } ->
-                                    Array.pushLast
-                                        (PP.text <| "--" ++ name ++ "=<" ++ title ++ ">")
-                                        doc
+                        (\_ desc doc ->
+                            Array.pushLast
+                                (PP.text <| renderFlagDisplayLine desc.name desc.kind)
+                                doc
                         )
                         []
                         knownFlags
@@ -1086,7 +1136,7 @@ flagErrorPrettified err =
             PP.verticalBlock
                 [ PP.words "I don't recognize this flag:"
                 , PP.empty
-                , PP.text ("--" ++ flagName)
+                , PP.text (renderFlagKey flagName)
                     |> PP.color PP.Red
                     |> PP.indent
                 , suffix
@@ -1095,20 +1145,26 @@ flagErrorPrettified err =
 
 describeFlagUse : KnownFlags -> String -> PP.Document
 describeFlagUse knownFlags flagName =
-    when Maybe.map .kind (Dict.get flagName knownFlags) is
-        Just (TakesValue { title, examples }) ->
+    when Dict.get flagName knownFlags is
+        Just { kind = TakesValue { title, examples }, name = flagNameSpec } ->
             let
+                primaryPrefix =
+                    when flagNameSpec is
+                        LongOnly long -> "--" ++ long
+                        ShortOnly short -> "-" ++ short
+                        Both { long } -> "--" ++ long
+
                 exampleDocs =
                     examples
-                        |> Array.map (\exampleStr -> PP.text <| "--" ++ flagName ++ "=" ++ exampleStr)
+                        |> Array.map (\exampleStr -> PP.text <| primaryPrefix ++ "=" ++ exampleStr)
             in
             PP.verticalBlock
                 [ PP.empty
                 , PP.block
-                    [ PP.words ("It neeeds a")
+                    [ PP.words "It needs a"
                     , PP.text (" <" ++ title ++ "> ")
                         |> PP.color PP.Yellow
-                    , PP.words " like this:"
+                    , PP.words "like this:"
                     ]
                 , PP.empty
                 , PP.verticalBlock exampleDocs
@@ -1123,6 +1179,37 @@ describeFlagUse knownFlags flagName =
             PP.empty
 
 
+canonicalKey : FlagName -> String
+canonicalKey flagName =
+    when flagName is
+        LongOnly long -> long
+        Both { long } -> long
+        ShortOnly short -> "-" ++ short
+
+
+renderFlagKey : String -> String
+renderFlagKey key =
+    if String.startsWith "-" key then
+        key
+
+    else
+        "--" ++ key
+
+
+renderFlagDisplayLine : FlagName -> FlagKind -> String
+renderFlagDisplayLine flagName kind =
+    let
+        valueSuffix =
+            when kind is
+                Toggle -> ""
+                TakesValue { title } -> "=<" ++ title ++ ">"
+    in
+    when flagName is
+        LongOnly long -> "--" ++ long ++ valueSuffix
+        ShortOnly short -> "-" ++ short ++ valueSuffix
+        Both { long, short } -> "--" ++ long ++ valueSuffix ++ ", -" ++ short
+
+
 {-| A parser that verifies that no flags have been provided.
 -}
 noFlags : FlagParser {}
@@ -1135,9 +1222,9 @@ noFlags =
 -}
 initFlags : a -> FlagParser a
 initFlags value =
-    FlagParser 
+    FlagParser
         { knownFlags = Dict.empty
-        , parseFn = \knownFlags remainingFlags -> 
+        , parseFn = \knownFlags remainingFlags ->
             when Dict.first remainingFlags is
                 Just unparsedFlag ->
                     Err <| FlagParserUnknownFlag { knownFlags = knownFlags, flagName = unparsedFlag.key }
@@ -1150,12 +1237,16 @@ initFlags value =
 {-| Defines a flag that doesn't require an associated value. We're simply checking
 if the flag is present or not.
 -}
-toggle : String -> String -> FlagParser (Bool -> b) -> FlagParser b
-toggle key desc (FlagParser { knownFlags, parseFn = previousSteps }) =
+toggle : FlagName -> String -> FlagParser (Bool -> b) -> FlagParser b
+toggle flagNameSpec desc (FlagParser { knownFlags, parseFn = previousSteps }) =
     let
+        key =
+            canonicalKey flagNameSpec
+
         descriptor =
             { kind = Toggle
             , description = desc
+            , name = flagNameSpec
             }
     in
     FlagParser
@@ -1180,9 +1271,12 @@ toggle key desc (FlagParser { knownFlags, parseFn = previousSteps }) =
 
 {-| Defines a flag that requires an associated value.
 -}
-flag : String -> ValueParser a -> String -> FlagParser (Maybe a -> b) -> FlagParser b
-flag key valueParserFn desc (FlagParser { knownFlags, parseFn = previousSteps }) =
+flag : FlagName -> ValueParser a -> String -> FlagParser (Maybe a -> b) -> FlagParser b
+flag flagNameSpec valueParserFn desc (FlagParser { knownFlags, parseFn = previousSteps }) =
     let
+        key =
+            canonicalKey flagNameSpec
+
         descriptor =
             { kind =
                 TakesValue
@@ -1190,6 +1284,7 @@ flag key valueParserFn desc (FlagParser { knownFlags, parseFn = previousSteps })
                     , examples = valueParserFn.examples
                     }
             , description = desc
+            , name = flagNameSpec
             }
     in
     FlagParser
@@ -1200,7 +1295,7 @@ flag key valueParserFn desc (FlagParser { knownFlags, parseFn = previousSteps })
                     when Dict.get key opts is
                         Just "" ->
                             Err <| FlagParserMissingValue { knownFlags = flagDescriptions, flagName = key }
-                    
+
                         Just value ->
                             when valueParserFn.fn value is
                                 Just parsedValue ->
@@ -1246,7 +1341,7 @@ grenFileParser =
                 (\path ->
                     if path.extension /= "gren" then
                         Nothing
-                
+
                     else
                         Just path
                 )

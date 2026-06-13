@@ -39,7 +39,7 @@ parser =
                         }
                 , flags =
                     Argparse.Parser.initFlags (\done -> { done = done })
-                        |> Argparse.Parser.toggle "done" "Mark the task done immediately"
+                        |> Argparse.Parser.toggle (Argparse.Parser.LongOnly "done") "Mark the task done immediately"
                 , commonDescription =
                     Just "Add a task to the list."
                 , summary =

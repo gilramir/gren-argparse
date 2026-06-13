@@ -40,7 +40,7 @@ parser =
                         }
                 , flags =
                     Argparse.Parser.initFlags (\loud -> { loud = loud })
-                        |> Argparse.Parser.toggle "loud" "Shout the greeting"
+                        |> Argparse.Parser.toggle (Argparse.Parser.LongOnly "loud") "Shout the greeting"
                 , commonDescription =
                     Just "Greet someone by name."
                 , summary =
