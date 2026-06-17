@@ -10,6 +10,9 @@ echo Compiling ../examples/with-permissions
 echo Compiling ../examples/root-with-permissions
 ( cd ../examples/root-with-permissions && gren make Main --output=app )
 
+echo Compiling ../examples/multiline-error
+( cd ../examples/multiline-error && gren make Main --output=app )
+
 echo Compiling the tests
 gren make Main --output=app
 

@@ -192,6 +192,10 @@ runWithContext { parser, init, onCommand } =
                 failWith doc =
                     Stream.Log.line env.stderr (PP.toString doc)
                         |> Task.andThen (\_ -> Node.setExitCode 1)
+
+                failWithString str =
+                    Stream.Log.line env.stderr str
+                        |> Task.andThen (\_ -> Node.setExitCode 1)
             in
             Node.endSimpleProgram <|
                 when Argparse.Parser.run (Array.dropFirst 2 env.args) parser is
@@ -210,7 +214,7 @@ runWithContext { parser, init, onCommand } =
                     Argparse.Parser.Success cmd ->
                         onCommand env context cmd
                             |> applyOutcome
-                            |> Task.onError (\msg -> failWith (PP.text msg))
+                            |> Task.onError failWithString
 
 
 {-| Build a `Node` program from a *single* command, with no sub-command word —
@@ -315,6 +319,10 @@ runRootWithContext { name, version, command, init, onCommand } =
                 failWith doc =
                     Stream.Log.line env.stderr (PP.toString doc)
                         |> Task.andThen (\_ -> Node.setExitCode 1)
+
+                failWithString str =
+                    Stream.Log.line env.stderr str
+                        |> Task.andThen (\_ -> Node.setExitCode 1)
             in
             Node.endSimpleProgram <|
                 when Array.first args is
@@ -338,4 +346,4 @@ runRootWithContext { name, version, command, init, onCommand } =
                             Argparse.Parser.Success cmd ->
                                 onCommand env context cmd
                                     |> applyOutcome
-                                    |> Task.onError (\msg -> failWith (PP.text msg))
+                                    |> Task.onError failWithString

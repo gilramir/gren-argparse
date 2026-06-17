@@ -1,0 +1,59 @@
+module Main exposing (main)
+
+{-| Regression guard for newline preservation in task-failure diagnostics.
+
+When a handler **fails its task** with a `String`, `Argparse.Program` prints that
+string to stderr *verbatim* and exits `1`. It must NOT route the string through
+`Argparse.PrettyPrinter.text`, which collapses every newline into a space — a
+real caller (e.g. `gren-format`) hands back an already-rendered, multi-line
+report and expects its line breaks to survive.
+
+This example always fails the task with a deliberately multi-line diagnostic, so
+the test suite can assert that the newline between the two lines reaches stderr
+intact.
+
+    ./run.sh    # prints two lines to stderr, exits 1
+-}
+
+import Argparse.Parser
+import Argparse.PrettyPrinter as PP
+import Argparse.Program
+import Node
+import Task
+
+
+type Command
+    = Boom
+
+
+command : Argparse.Parser.Command {} {} Command
+command =
+    { word = ""
+    , arguments =
+        Argparse.Parser.noArgs
+    , flags =
+        Argparse.Parser.noFlags
+    , commonDescription =
+        Nothing
+    , summary =
+        "Always fails with a two-line diagnostic:"
+    , example =
+        PP.words "boom"
+    , builder =
+        \_args _flags ->
+            Boom
+    }
+
+
+main : Node.SimpleProgram a
+main =
+    Argparse.Program.runRoot
+        { name = "boom"
+        , version = "1.0.0"
+        , command = command
+        , onCommand =
+            \_env cmd ->
+                when cmd is
+                    Boom ->
+                        Task.fail "line one\nline two"
+        }
