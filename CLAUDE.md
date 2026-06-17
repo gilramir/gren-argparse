@@ -130,12 +130,16 @@ wrappers and matches on `CommandParseResult` directly.
    constructor, then `toggle` (adds `Bool`) and `flag` (adds `Maybe value`)
    chain on, each filling one constructor argument so the final flags record is
    compiler-checked. `FlagKind` is a sum type (`Toggle` | `TakesValue { title,
-   examples }`) so a toggle structurally cannot carry a value type. Only
-   `--long` flags exist; **no short flags** (the tokenizer treats anything not
-   starting with `--` as positional) — the sole exception is `-h`, special-cased
-   as an alias for `--help`. Repeated flags = last-one-wins (no
-   count/append). Value flags are always optional (`Maybe`); there is no
-   "required option" at the parse layer.
+   examples }`) so a toggle structurally cannot carry a value type. A flag's
+   name is a `FlagName` — `LongOnly "all"` (`--all`), `ShortOnly "a"` (`-a`), or
+   `Both { long = "all", short = "a" }` (both spellings, help shows `--all, -a`).
+   The tokenizer builds a `shortAliasMap` from the `ShortOnly`/`Both` names and
+   resolves a `-x` token to its canonical (long, for `Both`) key; anything else
+   not starting with `--` is positional. `--help`/`-h` is still special-cased
+   separately (it's intercepted before flag parsing, via `Both`-style handling
+   in `run`/`runPrefix`/`runCommand`), so a command needn't declare it. Repeated
+   flags = last-one-wins (no count/append). Value flags are always optional
+   (`Maybe`); there is no "required option" at the parse layer.
 
 A `Command` ties these together with a `builder : args -> flags -> result` that
 bridges parsed input into the user's own command sum type. A `ValueParser`
@@ -174,7 +178,8 @@ return `Document`s, keeping output formatting separate from I/O.
 - `semanticVersionParser` / `packageNameParser` were intentionally removed from
   the original compiler version to avoid a `gren-lang/compiler-common`
   dependency; re-add them only if building Gren-specific tooling.
-- Several features are **intentionally missing** vs. Python `argparse` (short
-  flags, count/append, mutually-exclusive groups, required options, mixed
-  arity). Before "adding a missing feature," check whether the gap is deliberate
-  — many have a documented workaround.
+- Several features are **intentionally missing** vs. Python `argparse`
+  (count/append, mutually-exclusive groups, required options, mixed arity).
+  Before "adding a missing feature," check whether the gap is deliberate — many
+  have a documented workaround. (Short flags are *not* missing: see `FlagName`'s
+  `ShortOnly`/`Both` in the Flags section above.)
