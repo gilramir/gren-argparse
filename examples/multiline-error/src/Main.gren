@@ -55,5 +55,5 @@ main =
             \_env cmd ->
                 when cmd is
                     Boom ->
-                        Task.fail "line one\nline two"
+                        Task.fail (Argparse.Program.ExitMessage "line one\nline two")
         }

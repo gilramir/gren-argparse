@@ -83,5 +83,5 @@ main =
                     List ->
                         Stream.Log.line env.stdout "(this demo keeps no state, so the list is always empty)"
                 )
-                    |> Task.map (\_ -> Argparse.Program.Succeeded)
+                    |> Task.map (\_ -> {})
         }

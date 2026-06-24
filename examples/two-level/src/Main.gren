@@ -102,7 +102,7 @@ main =
                     RemoteList ->
                         Stream.Log.line env.stdout "(this demo keeps no state, so there are no remotes)"
                 )
-                    |> Task.map (\_ -> Argparse.Program.Succeeded)
+                    |> Task.map (\_ -> {})
         }
 
 

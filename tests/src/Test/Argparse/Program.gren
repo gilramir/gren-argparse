@@ -9,11 +9,11 @@ programs as child processes (via `ChildProcess.run`) and assert on the
 observable result — exit code plus which stream carried output. This is the
 Gren-native replacement for the old `tests/exit-codes.sh`.
 
-Two examples route all three outcomes through one file-reading command:
+Two examples route all three failure paths through one file-reading command:
 
-  - non-empty file → `Argparse.Program.Succeeded` → exit 0, size on stdout
-  - empty file     → `Argparse.Program.Failed`    → exit 1, note on stderr
-  - missing file   → task fails              → exit 1, error on stderr
+  - non-empty file → `Task.succeed {}` → exit 0, size on stdout
+  - empty file     → `Task.fail Argparse.Program.ExitFailure` → exit 1, note on stderr
+  - missing file   → `Task.fail (Argparse.Program.ExitMessage ...)` → exit 1, error on stderr
 
 We run the same three assertions against both, since they cover the two
 context-acquiring runners:
@@ -102,7 +102,7 @@ succeedsTest cpPerm dir args =
 
 failsQuietlyTest : ChildProcess.Permission -> String -> Array String -> Test
 failsQuietlyTest cpPerm dir args =
-    -- /dev/null reads as empty → Argparse.Program.Failed → exit 1, note on stderr,
+    -- /dev/null reads as empty → Task.fail Argparse.Program.ExitFailure → exit 1, note on stderr,
     -- nothing on stdout.
     awaitError "count of an empty file"
         (runExample cpPerm dir args)

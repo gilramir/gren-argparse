@@ -5,15 +5,14 @@ module Main exposing (main)
 threaded through as the program's *context*.
 
 The `count` command reads a file and reports its size in bytes. It also shows
-off the two ways `Argparse.Program` lets a handler signal failure:
+off the ways `Argparse.Program` lets a handler signal failure:
 
-  - a **missing** file fails the task, so its error message goes to stderr and
-    the program exits `1`;
-  - an **empty** file is treated as a failed check — the handler returns
-    `Argparse.Program.Failed`, which exits `1` after printing its own note (no
-    diagnostic from the runner).
+  - a **missing** file fails the task with `Argparse.Program.ExitMessage`, so its
+    error message goes to stderr and the program exits `1`;
+  - an **empty** file is a failed check — the handler prints its own note and
+    then fails with `Argparse.Program.ExitFailure` (exit `1`, no extra output).
 
-A non-empty file exits `0` via `Argparse.Program.Succeeded`.
+A non-empty file returns `{}` (exit `0`).
 
     ./run.sh count gren.json        # prints the size, exits 0
     ./run.sh count /no/such/file    # stderr error, exits 1
@@ -84,9 +83,8 @@ main =
                 when command is
                     Count { path } ->
                         FileSystem.readFile context.fs path
-                            -- A read error (e.g. no such file) fails the task,
-                            -- so the runner prints this to stderr and exits 1.
-                            |> Task.mapError FileSystem.errorToString
+                            -- A read error (e.g. no such file): print to stderr, exit 1.
+                            |> Task.mapError (\e -> Argparse.Program.ExitMessage (FileSystem.errorToString e))
                             |> Task.andThen
                                 (\contents ->
                                     if Bytes.length contents == 0 then
@@ -95,7 +93,7 @@ main =
                                         -- exit 1 with no extra diagnostic.
                                         Stream.Log.line env.stderr
                                             (Path.toPosixString path ++ " is empty")
-                                            |> Task.map (\_ -> Argparse.Program.Failed)
+                                            |> Task.andThen (\_ -> Task.fail Argparse.Program.ExitFailure)
 
                                     else
                                         Stream.Log.line env.stdout
@@ -104,6 +102,5 @@ main =
                                                 ++ String.fromInt (Bytes.length contents)
                                                 ++ " bytes"
                                             )
-                                            |> Task.map (\_ -> Argparse.Program.Succeeded)
                                 )
         }

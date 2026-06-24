@@ -1,4 +1,4 @@
-module Argparse.Program exposing ( Outcome(..), run, runWithContext, runRoot, runRootWithContext )
+module Argparse.Program exposing ( Failure(..), run, runWithContext, runRoot, runRootWithContext )
 
 {-| A convenience wrapper that turns a [Argparse.Parser.App](Argparse.Parser#App) into a
 ready-to-run Node program, handling the boilerplate most command-line tools
@@ -10,24 +10,25 @@ want:
   stdout (exit `0`)
 * a successfully parsed command is handed to your `onCommand` function
 
-Your handler never touches exit codes. It returns a `Task String Outcome`, and
+Your handler never touches exit codes. It returns a `Task Failure {}`, and
 this module turns that into the process exit status for you:
 
-* the task succeeds with [Succeeded](#Outcome) → exit `0`
-* the task succeeds with [Failed](#Outcome) → exit `1`, printing nothing extra
+* the task succeeds with `{}` → exit `0`
+* the task fails with [ExitFailure](#Failure) → exit `1`, printing nothing extra
   (you've already written whatever report you wanted)
-* the task fails with a `String` → that string is printed to stderr and the
-  program exits `1`
+* the task fails with [ExitMessage](#Failure) → that string is printed to stderr
+  and the program exits `1`
+* the task fails with [ExitValue](#Failure) → exits with the given code,
+  printing nothing extra
+* the task fails with [ExitMessageValue](#Failure) → that string is printed to
+  stderr and the program exits with the given code
 
-So there are two distinct ways to signal failure, mirroring how Unix tools
-behave. Fail the task when something went *wrong* and you have a diagnostic to
-show ("no such file"). Return `Failed` when the command ran fine but the
-*answer* is negative and you've already printed your own output — a linter that
-found problems, a test runner with failing tests, a `grep` that matched
-nothing. See [Outcome](#Outcome).
+So `Task.succeed {}` is the only success path — exit `0`. `Task.fail` is how
+you signal any non-zero exit, with the [Failure](#Failure) constructor choosing
+whether to print a message and which code to use.
 
-This is opinionated on purpose. Programs that need a *different* exit code (say
-`2`), or a full model/update loop, should skip this module entirely: call
+This is opinionated on purpose. Programs that need a full model/update loop
+should skip this module entirely: call
 [Argparse.Parser.run](Argparse.Parser#run) inside your own `Node.defineSimpleProgram`,
 match on each [CommandParseResult](Argparse.Parser#CommandParseResult) constructor by hand,
 and call `Node.setExitCode` yourself wherever you need it. See `examples/manual/`
@@ -38,7 +39,7 @@ processes, …), you don't have to drop down that far: use
 [runWithContext](#runWithContext), which lets you run your own initialization
 before the command handler while keeping all of the boilerplate above.
 
-@docs Outcome, run, runWithContext, runRoot, runRootWithContext
+@docs Failure, run, runWithContext, runRoot, runRootWithContext
 -}
 
 import Argparse.Parser
@@ -49,25 +50,21 @@ import Stream.Log
 import Task exposing (Task)
 
 
-{-| The result of running a command: did the program *succeed* or *fail*?
+{-| How a command handler signals failure. A handler returns `Task Failure {}`;
+`Task.succeed {}` exits `0`, and `Task.fail` with one of these constructors
+decides the non-zero behavior.
 
-A command handler returns a `Task String Outcome`. On success the `Outcome`
-decides the exit status — `Succeeded` exits `0`, `Failed` exits `1` — so your
-handler expresses pass/fail in domain terms and never calls `Node.setExitCode`
-itself.
+  - `ExitFailure` — exit `1`, print nothing (you've already written your report)
+  - `ExitMessage msg` — print `msg` to stderr, then exit `1`
+  - `ExitValue n` — exit `n`, print nothing
+  - `ExitMessageValue { message, value }` — print `message` to stderr, then exit `value`
 
-`Failed` is for "the command ran correctly, but the answer is no": a check that
-didn't pass, a search with no matches, a build that found errors. It exits `1`
-*silently*, on the assumption you've already printed your own report. If instead
-you want to surface an error *message*, fail the task (`Task.fail "…"`) rather
-than returning `Failed`; that string goes to stderr (also exit `1`).
+`ExitFailure` is for "the command ran correctly, but the answer is no": a check
+that didn't pass, a search with no matches, a build that found errors.
+`ExitMessage` is for "something went wrong and here is why". The `…Value`
+variants let you choose a specific exit code when `1` isn't the right signal.
 
-This module only ever exits `0` or `1`. If you need a different code (e.g. `2`
-for a usage error, following POSIX convention), skip `Argparse.Program` and match
-on [CommandParseResult](Argparse.Parser#CommandParseResult) directly, calling
-`Node.setExitCode` yourself. See `examples/manual/`.
-
-    check : Node.Environment -> Cmd -> Task String Argparse.Program.Outcome
+    check : Node.Environment -> Cmd -> Task Argparse.Program.Failure {}
     check env cmd =
         when cmd is
             Lint { path } ->
@@ -76,34 +73,35 @@ on [CommandParseResult](Argparse.Parser#CommandParseResult) directly, calling
                         (\problems ->
                             if Array.length problems == 0 then
                                 Stream.Log.line env.stdout "All good."
-                                    |> Task.map (\_ -> Argparse.Program.Succeeded)
 
                             else
                                 reportProblems env.stderr problems
-                                    |> Task.map (\_ -> Argparse.Program.Failed)
+                                    |> Task.andThen (\_ -> Task.fail Argparse.Program.ExitFailure)
                         )
 -}
-type Outcome
-    = Succeeded
-    | Failed
+type Failure
+    = ExitFailure
+    | ExitMessage String
+    | ExitValue Int
+    | ExitMessageValue { message : String, value : Int }
 
 
-{-| Turn a handler's `Task String Outcome` into the `Task String {}` the runner
-threads to `endSimpleProgram`, setting the process exit code from the outcome.
-The `String` error is left untouched for the caller's `Task.onError` to print.
--}
-applyOutcome : Task String Outcome -> Task String {}
-applyOutcome task =
-    task
-        |> Task.andThen
-            (\outcome ->
-                when outcome is
-                    Succeeded ->
-                        Task.succeed {}
+applyFailure : Node.Environment -> Failure -> Task x {}
+applyFailure env failure =
+    when failure is
+        ExitFailure ->
+            Node.setExitCode 1
 
-                    Failed ->
-                        Node.setExitCode 1
-            )
+        ExitMessage msg ->
+            Stream.Log.line env.stderr msg
+                |> Task.andThen (\_ -> Node.setExitCode 1)
+
+        ExitValue value ->
+            Node.setExitCode value
+
+        ExitMessageValue { message, value } ->
+            Stream.Log.line env.stderr message
+                |> Task.andThen (\_ -> Node.setExitCode value)
 
 
 {-| Build a `Node` program from a parser and a command handler.
@@ -117,18 +115,17 @@ applyOutcome task =
                     when command is
                         MyArgparse.Greet { name } ->
                             Stream.Log.line env.stdout ("Hello, " ++ name)
-                                |> Task.map (\_ -> Argparse.Program.Succeeded)
             }
 
 `onCommand` receives the [Node.Environment](Node#Environment) (stdout, stderr,
-args, …) and your parsed command, and returns a `Task String Outcome`. Succeed
-with [Succeeded](#Outcome) to exit `0` or [Failed](#Outcome) to exit `1`; fail
-the task with a `String` to print a diagnostic to stderr and exit `1` — the same
-treatment a parse error gets.
+args, …) and your parsed command, and returns a `Task Failure {}`. Succeed with
+`{}` to exit `0`; fail the task with a [Failure](#Failure) constructor to
+choose a non-zero exit and whether to print a message — the same treatment a
+parse error gets.
 -}
 run :
     { parser : Argparse.Parser.App cmd
-    , onCommand : Node.Environment -> cmd -> Task String Outcome
+    , onCommand : Node.Environment -> cmd -> Task Failure {}
     }
     -> Node.SimpleProgram a
 run { parser, onCommand } =
@@ -174,7 +171,7 @@ handed to every `onCommand` invocation.
                                 |> Task.map (\_ -> Argparse.Program.Succeeded)
             }
 
-Parse errors, `--help`/`--version`, and the [Outcome](#Outcome)→exit-code
+Parse errors, `--help`/`--version`, and the [Failure](#Failure)→exit-code
 mapping are handled exactly as in [run](#run). The `context` is acquired up
 front, so it is available even on the help/error paths; that's harmless, since
 acquiring a permission performs no I/O.
@@ -182,7 +179,7 @@ acquiring a permission performs no I/O.
 runWithContext :
     { parser : Argparse.Parser.App cmd
     , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task (Cmd a)
-    , onCommand : Node.Environment -> context -> cmd -> Task String Outcome
+    , onCommand : Node.Environment -> context -> cmd -> Task Failure {}
     }
     -> Node.SimpleProgram a
 runWithContext { parser, init, onCommand } =
@@ -191,10 +188,6 @@ runWithContext { parser, init, onCommand } =
             let
                 failWith doc =
                     Stream.Log.line env.stderr (PP.toString doc)
-                        |> Task.andThen (\_ -> Node.setExitCode 1)
-
-                failWithString str =
-                    Stream.Log.line env.stderr str
                         |> Task.andThen (\_ -> Node.setExitCode 1)
             in
             Node.endSimpleProgram <|
@@ -213,8 +206,7 @@ runWithContext { parser, init, onCommand } =
 
                     Argparse.Parser.Success cmd ->
                         onCommand env context cmd
-                            |> applyOutcome
-                            |> Task.onError failWithString
+                            |> Task.onError (applyFailure env)
 
 
 {-| Build a `Node` program from a *single* command, with no sub-command word —
@@ -232,12 +224,11 @@ is the [Argparse.Parser.runCommand](Argparse.Parser#runCommand) counterpart to
             , onCommand =
                 \env (MyArgparse.Greet { name, loud }) ->
                     Stream.Log.line env.stdout (greeting name loud)
-                        |> Task.map (\_ -> Argparse.Program.Succeeded)
             }
 
 `name` and `version` drive the `--help` usage line and `--version` output. The
 command's own `word` is ignored (the help line reads `name <args>`), so you can
-leave it empty. The [Outcome](#Outcome)→exit-code mapping works as in
+leave it empty. The [Failure](#Failure)→exit-code mapping works as in
 [run](#run).
 
 If the command needs subsystem permissions, use
@@ -248,7 +239,7 @@ runRoot :
     { name : String
     , version : String
     , command : Argparse.Parser.Command args flags cmd
-    , onCommand : Node.Environment -> cmd -> Task String Outcome
+    , onCommand : Node.Environment -> cmd -> Task Failure {}
     }
     -> Node.SimpleProgram a
 runRoot { name, version, command, onCommand } =
@@ -291,12 +282,11 @@ handed to `onCommand`.
             , onCommand =
                 \env context (MyArgparse.Count { path }) ->
                     FileSystem.readFile context.fs path
-                        |> Task.mapError FileSystem.errorToString
+                        |> Task.mapError (\e -> ExitMessage (FileSystem.errorToString e))
                         |> Task.andThen (\contents -> Stream.Log.line env.stdout contents)
-                        |> Task.map (\_ -> Argparse.Program.Succeeded)
             }
 
-Parse errors, `--help`/`--version`, and the [Outcome](#Outcome)→exit-code
+Parse errors, `--help`/`--version`, and the [Failure](#Failure)→exit-code
 mapping are handled exactly as in [runRoot](#runRoot). The `context` is acquired
 up front, so it is available even on the help/error paths; that's harmless, since
 acquiring a permission performs no I/O.
@@ -306,7 +296,7 @@ runRootWithContext :
     , version : String
     , command : Argparse.Parser.Command args flags cmd
     , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task (Cmd a)
-    , onCommand : Node.Environment -> context -> cmd -> Task String Outcome
+    , onCommand : Node.Environment -> context -> cmd -> Task Failure {}
     }
     -> Node.SimpleProgram a
 runRootWithContext { name, version, command, init, onCommand } =
@@ -318,10 +308,6 @@ runRootWithContext { name, version, command, init, onCommand } =
 
                 failWith doc =
                     Stream.Log.line env.stderr (PP.toString doc)
-                        |> Task.andThen (\_ -> Node.setExitCode 1)
-
-                failWithString str =
-                    Stream.Log.line env.stderr str
                         |> Task.andThen (\_ -> Node.setExitCode 1)
             in
             Node.endSimpleProgram <|
@@ -345,5 +331,4 @@ runRootWithContext { name, version, command, init, onCommand } =
 
                             Argparse.Parser.Success cmd ->
                                 onCommand env context cmd
-                                    |> applyOutcome
-                                    |> Task.onError failWithString
+                                    |> Task.onError (applyFailure env)

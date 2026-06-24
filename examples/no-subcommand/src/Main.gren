@@ -56,7 +56,7 @@ main =
                 when cmd is
                     Greet { name, loud } ->
                         Stream.Log.line env.stdout (greeting name loud)
-                            |> Task.map (\_ -> Argparse.Program.Succeeded)
+                            |> Task.map (\_ -> {})
         }
 
 
