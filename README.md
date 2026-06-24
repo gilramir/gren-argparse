@@ -129,7 +129,7 @@ textParser =
     { label = "text", fn = Just, examples = [ "buy milk" ] }
 ```
 
-Built-ins: `pathParser`, `grenFileParser`.
+Built-in: `pathParser`.
 
 ## 3. Run it
 

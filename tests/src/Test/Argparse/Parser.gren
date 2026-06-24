@@ -120,7 +120,7 @@ tests =
             , describe "One arg" <|
                 let
                     testCmdOneArg =
-                        cmdBuilder (Parser.oneArg (arg Parser.grenFileParser)) testFlags
+                        cmdBuilder (Parser.oneArg (arg grenFileParser)) testFlags
                 in
                 [ test "Passing one arg when one is expected" <| \{} ->
                     expectParseSuccess testCmdOneArg testArgs <| \cmd ->
@@ -149,7 +149,7 @@ tests =
                             (Parser.twoArgs
                                 (\path file -> { path = path, file = file })
                                 (arg Parser.pathParser)
-                                (arg Parser.grenFileParser)
+                                (arg grenFileParser)
                             )
                             testFlags
 
@@ -169,8 +169,8 @@ tests =
                         |> Expect.equal
                             (Parser.BadArguments <| Parser.ArgumentParserInvalidArgument
                                 { argument = "src/Dest"
-                                , title = Parser.grenFileParser.label
-                                , examples = Parser.grenFileParser.examples
+                                , title = grenFileParser.label
+                                , examples = grenFileParser.examples
                                 }
                             )
                 , test "Passing no args when two is expected" <| \{} ->
@@ -207,7 +207,7 @@ tests =
                                     { path = path, file = file, path2 = path2 }
                                 )
                                 (arg Parser.pathParser)
-                                (arg Parser.grenFileParser)
+                                (arg grenFileParser)
                                 (arg Parser.pathParser)
                             )
                             testFlags
@@ -229,8 +229,8 @@ tests =
                         |> Expect.equal
                             (Parser.BadArguments <| Parser.ArgumentParserInvalidArgument
                                 { argument = "src/Dest"
-                                , title = Parser.grenFileParser.label
-                                , examples = Parser.grenFileParser.examples
+                                , title = grenFileParser.label
+                                , examples = grenFileParser.examples
                                 }
                             )
                 , test "Passing no args when three is expected" <| \{} ->
@@ -282,15 +282,15 @@ tests =
                         |> Expect.equal
                             (Parser.BadArguments <| Parser.ArgumentParserInvalidArgument
                                 { argument = "src/Main.gren src/Logic"
-                                , title = Parser.grenFileParser.label
-                                , examples = Parser.grenFileParser.examples
+                                , title = grenFileParser.label
+                                , examples = grenFileParser.examples
                                 }
                             )
                 ]
             , describe "One or more args" <|
                 let
                     testCmdOneOrMore =
-                        cmdBuilder (Parser.oneOrMoreArgs (arg Parser.grenFileParser)) testFlags
+                        cmdBuilder (Parser.oneOrMoreArgs (arg grenFileParser)) testFlags
                 in
                 [ test "One arg is fine" <| \{} ->
                     expectParseSuccess testCmdOneOrMore [ "make", "src/Main.gren" ] <| \cmd ->
@@ -314,7 +314,7 @@ tests =
             , describe "Optional arg" <|
                 let
                     testCmdOptional =
-                        cmdBuilder (Parser.optionalArg (arg Parser.grenFileParser)) testFlags
+                        cmdBuilder (Parser.optionalArg (arg grenFileParser)) testFlags
                 in
                 [ test "Zero args yields Nothing" <| \{} ->
                     expectParseSuccess testCmdOptional [ "make" ] <| \cmd ->
@@ -327,8 +327,8 @@ tests =
                         |> Expect.equal
                             (Parser.BadArguments <| Parser.ArgumentParserInvalidArgument
                                 { argument = "src/Main"
-                                , title = Parser.grenFileParser.label
-                                , examples = Parser.grenFileParser.examples
+                                , title = grenFileParser.label
+                                , examples = grenFileParser.examples
                                 }
                             )
                 , test "More than one arg fails the arity check" <| \{} ->
@@ -356,7 +356,7 @@ tests =
                                         { path = path, file = file }
                                     )
                                     (arg Parser.pathParser)
-                                    (arg Parser.grenFileParser)
+                                    (arg grenFileParser)
                                 ]
                             )
                             testFlags
@@ -517,7 +517,7 @@ tests =
         , describe "runCommand (no command word)" <|
             let
                 oneArgCmd =
-                    cmdBuilder (Parser.oneArg (arg Parser.grenFileParser)) testFlags
+                    cmdBuilder (Parser.oneArg (arg grenFileParser)) testFlags
             in
             [ test "Parses flags and args directly, with no leading command word" <| \{} ->
                 when Parser.runCommand "mytool" [ "--debug", "--output=out", "src/Main.gren" ] testCmd is
@@ -692,8 +692,29 @@ testCmd =
     cmdBuilder testArgParser testFlags
 
 
+-- A ValueParser that only accepts .gren files, used in tests that need a
+-- parser capable of rejecting input to exercise the invalid-arg error path.
+grenFileParser : Parser.ValueParser Path.Path
+grenFileParser =
+    { label = "gren-file"
+    , fn = \input ->
+        Parser.pathParser.fn input
+            |> Maybe.andThen
+                (\path ->
+                    if path.extension /= "gren" then
+                        Nothing
+                    else
+                        Just path
+                )
+    , examples =
+        [ "MyModule.gren"
+        , "src/Main.gren"
+        ]
+    }
+
+
 testArgParser =
-    Parser.zeroOrMoreArgs (arg Parser.grenFileParser)
+    Parser.zeroOrMoreArgs (arg grenFileParser)
 
 
 testFlags =

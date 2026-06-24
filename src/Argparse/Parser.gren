@@ -37,7 +37,6 @@ module Argparse.Parser exposing
     , flag
     --
     , pathParser
-    , grenFileParser
     )
 
 
@@ -70,7 +69,7 @@ Into a data structure.
 
 ## Common parsers
 
-@docs pathParser, grenFileParser
+@docs pathParser
 -}
 
 
@@ -1342,24 +1341,3 @@ pathParser =
         ]
     }
 
-
-{-| Like [pathParser](#pathParser), but verifies that the file extension is `.gren`.
--}
-grenFileParser : ValueParser Path
-grenFileParser =
-    { label = "gren-file"
-    , fn = \input ->
-        pathParser.fn input
-            |> Maybe.andThen
-                (\path ->
-                    if path.extension /= "gren" then
-                        Nothing
-
-                    else
-                        Just path
-                )
-    , examples =
-        [ "MyModule.gren"
-        , "src/Main.gren"
-        ]
-    }

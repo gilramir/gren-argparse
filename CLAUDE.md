@@ -144,8 +144,8 @@ wrappers and matches on `CommandParseResult` directly.
 A `Command` ties these together with a `builder : args -> flags -> result` that
 bridges parsed input into the user's own command sum type. A `ValueParser`
 (`{ label, fn : String -> Maybe val, examples }`) is the unit of type
-conversion and powers both arguments and value flags; built-ins are
-`pathParser` and `grenFileParser`.
+conversion and powers both arguments and value flags; the built-in is
+`pathParser`.
 
 ### Tokenizing (`parseRawTokens` in `Argparse.Parser`)
 
@@ -172,9 +172,9 @@ return `Document`s, keeping output formatting separate from I/O.
   and type needs a `{-| … -}` doc comment and a matching `@docs` entry in the
   module header, or `gren docs` fails. Keep both in sync when adding/removing
   exports.
-- `platform: node` is required *only* by `pathParser` / `grenFileParser`
-  (`FileSystem.Path`). Dropping those two and the `gren-lang/node` dependency
-  would make the package `platform: common` (browser-capable).
+- `platform: node` is required *only* by `pathParser` (`FileSystem.Path`).
+  Dropping it and the `gren-lang/node` dependency would make the package
+  `platform: common` (browser-capable).
 - `semanticVersionParser` / `packageNameParser` were intentionally removed from
   the original compiler version to avoid a `gren-lang/compiler-common`
   dependency; re-add them only if building Gren-specific tooling.
