@@ -156,7 +156,7 @@ main =
                     List ->
                         Stream.Log.line env.stdout "(no tasks yet)"
                 )
-                    |> Task.map (\_ -> Argparse.Program.Succeeded)
+                    |> Task.map (\_ -> {})
         }
 ```
 
@@ -165,24 +165,25 @@ parsed command.
 
 ## Exit codes
 
-Your handler returns a `Task String Argparse.Program.Outcome`. There are three
-outcomes:
+Your handler returns a `Task Argparse.Program.Failure {}`. `Task.succeed {}` is
+the only exit-0 path; all non-zero exits go through `Task.fail`:
 
-| Return | Exit | When |
+| Return | Exit | Behavior |
 | --- | --- | --- |
-| `Task.succeed Succeeded` | `0` | the command did its job, the program exits with 0 |
-| `Task.succeed Failed` | `1` | your program already printed an error, but you want to exit with 1 |
-| `Task.fail "message"` | `1` | something went wrong; the message is printed to stderr and the program exits with 1 |
-
+| `Task.succeed {}` | `0` | command succeeded |
+| `Task.fail ExitFailure` | `1` | silent exit 1 (you already printed your report) |
+| `Task.fail (ExitMessage "msg")` | `1` | print `msg` to stderr, then exit 1 |
+| `Task.fail (ExitValue n)` | `n` | exit with code `n`, print nothing |
+| `Task.fail (ExitMessageValue { message = "msg", value = n })` | `n` | print `msg` to stderr, then exit `n` |
 
 If your command always succeeds, just end with:
 
 ```gren
-|> Task.map (\_ -> Argparse.Program.Succeeded)
+|> Task.map (\_ -> {})
 ```
 
-Need a different exit code, like `2`? Call `Argparse.Parser.run` directly and
-handle each constructor yourself:
+Need a full model/update loop? Call `Argparse.Parser.run` directly and handle
+each constructor yourself:
 
 ```gren
 main : Node.SimpleProgram a
@@ -191,22 +192,20 @@ main =
         let
             args =
                 Array.dropFirst 2 env.args
-
-            -- Print an error to stderr and exit with 2
-            usageError doc =
-                Stream.Log.line env.stderr (PP.toString doc)
-                    |> Task.andThen (\_ -> Node.setExitCode 2)
         in
         Node.endSimpleProgram <|
             when Argparse.Parser.run args parser is
                 Argparse.Parser.UnknownCommand name ->
-                    usageError (PP.text ("Unknown command: " ++ name))
+                    Stream.Log.line env.stderr ("Unknown command: " ++ name)
+                        |> Task.andThen (\_ -> Node.setExitCode 1)
 
                 Argparse.Parser.BadFlags err ->
-                    usageError (Argparse.Parser.flagErrorPrettified err)
+                    Stream.Log.line env.stderr (PP.toString (Argparse.Parser.flagErrorPrettified err))
+                        |> Task.andThen (\_ -> Node.setExitCode 1)
 
                 Argparse.Parser.BadArguments err ->
-                    usageError (Argparse.Parser.argumentErrorPrettified err)
+                    Stream.Log.line env.stderr (PP.toString (Argparse.Parser.argumentErrorPrettified err))
+                        |> Task.andThen (\_ -> Node.setExitCode 1)
 
                 Argparse.Parser.HelpText doc ->
                     Stream.Log.line env.stdout (PP.toString doc)

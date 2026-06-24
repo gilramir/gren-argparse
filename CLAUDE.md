@@ -38,8 +38,8 @@ Validation is done by compiling and by the test suite.
   awaiting its work in the test process would clobber the runner's own exit
   code. Instead this suite uses `Test.Runner.Effectful`'s `await`/`awaitError`
   to drive built examples as child processes (`ChildProcess.run`), asserting the
-  exit code + stream (stdout/stderr) for each `Outcome` path (`Succeeded` → 0,
-  `Failed` → 1 silent, task failure → 1 on stderr). The same three assertions
+  exit code + stream (stdout/stderr) for each `Failure` path (`Task.succeed {}` → 0,
+  `ExitFailure` → 1 silent, `ExitMessage` → 1 on stderr). The same three assertions
   run against both context-acquiring runners — `with-permissions`
   (`runWithContext`, invoked `count <file>`) and `root-with-permissions`
   (`runRootWithContext`, invoked rootless `<file>`) — parameterized by example
@@ -60,11 +60,11 @@ Validation is done by compiling and by the test suite.
   (`Argparse.Program.run` + `withCommand`), `two-level/` (`withPrefix`, nested
   sub-commands), `manual/` (`Argparse.Parser.run` by hand, custom exit code), and
   `with-permissions/` (`Argparse.Program.runWithContext`, a `count <file>` command
-  acquiring a `FileSystem.Permission`; also exercises all three `Outcome` exit
-  paths — non-empty file → 0, empty file → `Failed`/1, missing file → task
-  error/1), and `root-with-permissions/` (`Argparse.Program.runRootWithContext` — the
+  acquiring a `FileSystem.Permission`; also exercises all three `Failure` exit
+  paths — non-empty file → 0, empty file → `ExitFailure`/1, missing file →
+  `ExitMessage`/1), and `root-with-permissions/` (`Argparse.Program.runRootWithContext` — the
   rootless `wc <file>` tool acquiring a `FileSystem.Permission`, i.e.
-  `runRoot` + context; same three `Outcome` paths). Each `run.sh` builds the **module
+  `runRoot` + context; same three `Failure` paths). Each `run.sh` builds the **module
   name** `Main` (not the path `src/Main.gren`: gren 0.6.5 rejects the path form
   with a `<module-names>` error) into an **executable** `app` (not `app.js`,
   which is a *library module* that exports `Main.init` without calling it, so it
@@ -79,12 +79,13 @@ of five `CommandParseResult` constructors (`UnknownCommand`, `BadFlags`,
 `BadArguments`, `HelpText`, `Success a`); the caller decides what to print and
 which exit code to use. `Argparse.Program.run` is the opinionated wrapper that does
 the obvious thing (errors → stderr + exit 1, help → stdout, success → your
-handler). The handler returns a `Task String Argparse.Program.Outcome`: succeeding
-with `Succeeded` exits 0, succeeding with `Failed` exits 1 *silently* (a failed
-check — you printed your own report), and failing the task prints the `String`
-to stderr and exits 1. The handler never calls `Node.setExitCode`; that mapping
-lives in `applyOutcome`. `Argparse.Program` only ever exits 0 or 1 — needing another
-code (e.g. 2) means dropping to `Argparse.Parser.run` (see `examples/manual/`).
+handler). The handler returns a `Task Argparse.Program.Failure {}`: `Task.succeed {}`
+exits 0; `Task.fail ExitFailure` exits 1 silently (you already printed your report);
+`Task.fail (ExitMessage msg)` prints `msg` to stderr and exits 1; `Task.fail (ExitValue n)`
+exits with code `n`; `Task.fail (ExitMessageValue { message, value })` prints to stderr
+and exits with the given code. The handler never calls `Node.setExitCode`; that mapping
+lives in `applyFailure`. Only programs needing a full model/update loop need to drop to
+`Argparse.Parser.run` (see `examples/manual/`).
 `Argparse.Program.runWithContext` is the same, but lets the caller run
 their own `Init.await` chain first (to acquire `FileSystem`/terminal/etc.
 permissions) and threads the resulting *context* into the handler — `run` is
