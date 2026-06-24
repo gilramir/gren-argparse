@@ -37,6 +37,7 @@ module Argparse.Parser exposing
     , flag
     --
     , pathParser
+    , stringParser
     )
 
 
@@ -69,7 +70,7 @@ Into a data structure.
 
 ## Common parsers
 
-@docs pathParser
+@docs pathParser, stringParser
 -}
 
 
@@ -1338,6 +1339,18 @@ pathParser =
     , examples =
         [ "folder"
         , "folder/file.md"
+        ]
+    }
+
+
+{-| For any plain `String` value.
+-}
+stringParser : ValueParser String
+stringParser =
+    { label = "text"
+    , fn = Just
+    , examples =
+        [ "buy milk"
         ]
     }
 

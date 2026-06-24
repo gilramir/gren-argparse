@@ -34,7 +34,7 @@ parser =
                 { word = "add"
                 , arguments =
                     Argparse.Parser.oneArg
-                        { value = textParser
+                        { value = Argparse.Parser.stringParser
                         , help = "The task description"
                         }
                 , flags =
@@ -85,13 +85,3 @@ main =
                 )
                     |> Task.map (\_ -> Argparse.Program.Succeeded)
         }
-
-
-textParser : Argparse.Parser.ValueParser String
-textParser =
-    { label = "text"
-    , fn = Just
-    , examples =
-        [ "buy milk"
-        ]
-    }

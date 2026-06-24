@@ -1,11 +1,13 @@
 # gren-argparse
 
 Declarative command-line argument parsing for Gren. Describe your CLI as a
-value; get back a typed command to pattern-match on.
+value; get back a typed command to pattern-match on.  A `Program` package
+is also included, providing common functionality for a CLI program for
+parsing a command-line, running code, and exiting with a proper return code.
 
 Built-in `--help`, `--version`, and ANSI-colored error messages are included.
 
-## A quick look
+## Example of what is supported
 
 ```
 % todo add "buy milk" --done
@@ -27,16 +29,16 @@ Argparse.Parser.run argv app  →  CommandParseResult YourCommand
 Parsing is a **pure function** — no I/O, no process exits. You get a result
 back and decide what to print and what exit code to use.
 
-`Argparse.Program` is an optional wrapper that makes the obvious decisions for
-you: errors go to stderr, help goes to stdout, and a successful parse calls your
+`Argparse.Program` is an optional wrapper that handles the bootstrapping for
+you: CLI errors go to stderr, help goes to stdout, and a successful parse calls your
 handler.
 
 ## 1. Define your command type
 
-This is your type — the parser's job is to produce it.
+This is your type; the parser's job is to produce it.
 
 ```gren
-type Command
+type ProgramOptions
     = Add { text : String, done : Bool }
     | List
 ```
@@ -49,7 +51,7 @@ An `App` ties the tool name, version, and a list of commands together.
 import Argparse.Parser
 import Argparse.PrettyPrinter as PP
 
-parser : Argparse.Parser.App Command
+parser : Argparse.Parser.App ProgramOptions
 parser =
     { name = "todo"
     , version = "1.0.0"
@@ -61,7 +63,7 @@ parser =
                 { word = "add"
                 , arguments =
                     Argparse.Parser.oneArg
-                        { value = textParser
+                        { value = Argparse.Parser.stringParser
                         , help = "The task to add"
                         }
                 , flags =
@@ -120,16 +122,15 @@ declare them.
 
 ### ValueParser
 
-A `ValueParser` converts a raw string into a typed value. Write your own in a
-few lines:
+A `ValueParser` converts a raw string into a typed value. Two are built in:
+`stringParser` (any `String`) and `pathParser` (`FileSystem.Path`). Write your
+own in a few lines:
 
 ```gren
-textParser : Argparse.Parser.ValueParser String
-textParser =
-    { label = "text", fn = Just, examples = [ "buy milk" ] }
+myParser : Argparse.Parser.ValueParser MyType
+myParser =
+    { label = "mytype", fn = MyType.fromString, examples = [ "example" ] }
 ```
-
-Built-in: `pathParser`.
 
 ## 3. Run it
 
@@ -169,14 +170,10 @@ outcomes:
 
 | Return | Exit | When |
 | --- | --- | --- |
-| `Task.succeed Succeeded` | `0` | the command did its job |
-| `Task.succeed Failed` | `1` | it ran fine, but the answer is "no" — you've already printed your report |
-| `Task.fail "message"` | `1` | something went wrong; the message is printed to stderr |
+| `Task.succeed Succeeded` | `0` | the command did its job, the program exits with 0 |
+| `Task.succeed Failed` | `1` | your program already printed an error, but you want to exit with 1 |
+| `Task.fail "message"` | `1` | something went wrong; the message is printed to stderr and the program exits with 1 |
 
-The `Failed` / `Task.fail` split maps to how Unix tools actually behave.
-`grep` exits `1` for "no matches" and `2` for "invalid regex" — those are
-different situations. A linter that found problems should return `Failed` (the
-problems are the expected output, not a crash).
 
 If your command always succeeds, just end with:
 
@@ -184,8 +181,39 @@ If your command always succeeds, just end with:
 |> Task.map (\_ -> Argparse.Program.Succeeded)
 ```
 
-> Need a different exit code, like `2`? See `examples/manual/`, which calls
-> `Argparse.Parser.run` directly and handles the result itself.
+Need a different exit code, like `2`? Call `Argparse.Parser.run` directly and
+handle each constructor yourself:
+
+```gren
+main : Node.SimpleProgram a
+main =
+    Node.defineSimpleProgram <| \env ->
+        let
+            args =
+                Array.dropFirst 2 env.args
+
+            -- Print an error to stderr and exit with 2
+            usageError doc =
+                Stream.Log.line env.stderr (PP.toString doc)
+                    |> Task.andThen (\_ -> Node.setExitCode 2)
+        in
+        Node.endSimpleProgram <|
+            when Argparse.Parser.run args parser is
+                Argparse.Parser.UnknownCommand name ->
+                    usageError (PP.text ("Unknown command: " ++ name))
+
+                Argparse.Parser.BadFlags err ->
+                    usageError (Argparse.Parser.flagErrorPrettified err)
+
+                Argparse.Parser.BadArguments err ->
+                    usageError (Argparse.Parser.argumentErrorPrettified err)
+
+                Argparse.Parser.HelpText doc ->
+                    Stream.Log.line env.stdout (PP.toString doc)
+
+                Argparse.Parser.Success cmd ->
+                    runCommand env cmd
+```
 
 ## Choosing a runner
 
