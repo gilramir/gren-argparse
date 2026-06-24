@@ -38,6 +38,7 @@ module Argparse.Parser exposing
     --
     , pathParser
     , stringParser
+    , intParser
     )
 
 
@@ -56,9 +57,13 @@ Into a data structure.
 
 @docs App, run, runCommand
 
+## Command
+
+@docs Command, CommandParseResult
+
 ## Groups
 
-@docs GroupParser, Command, CommandParseResult, defineGroup, withCommand, withPrefix
+@docs GroupParser, defineGroup, withCommand, withPrefix
 
 ## Arguments
 
@@ -70,7 +75,7 @@ Into a data structure.
 
 ## Common parsers
 
-@docs pathParser, stringParser
+@docs pathParser, stringParser, intParser
 -}
 
 
@@ -97,7 +102,24 @@ type alias App result =
     }
 
 
-{-| A parser for a group, or collection, of commands.
+{-| A parser for a group, or collection, of commands. Build one with
+[defineGroup](#defineGroup), then pipe it through [withCommand](#withCommand)
+and [withPrefix](#withPrefix) to register each command word:
+
+    commands : Argparse.Parser.GroupParser Command
+    commands =
+        Argparse.Parser.defineGroup
+            |> Argparse.Parser.withCommand addCommand    -- word = "add"
+            |> Argparse.Parser.withCommand listCommand   -- word = "list"
+            |> Argparse.Parser.withPrefix "remote" remoteCommands
+
+Given an app named `"mytool"`, the resulting CLI accepts:
+
+    mytool add ...
+    mytool list
+    mytool remote ...
+
+Pass the resulting `GroupParser` as the `commands` field of [App](#App).
 -}
 type GroupParser result
     = GroupParser
@@ -121,6 +143,19 @@ defineGroup =
 {-| Returns a new group that contains the given command. If there are multiple
 commands in the group with the same `word`, then the last registered command
 wins.
+
+    Argparse.Parser.defineGroup
+        |> Argparse.Parser.withCommand
+            { word = "greet"
+            , arguments = Argparse.Parser.oneArg { value = Argparse.Parser.stringParser, help = "Name to greet" }
+            , flags = Argparse.Parser.noFlags
+            , commonDescription = Just "Say hello."
+            , summary = "The `greet` command prints a greeting:"
+            , example = PP.words "mytool greet Alice"
+            , builder = \name _flags -> Greet name
+            }
+
+This makes `mytool greet Alice` a valid invocation.
 -}
 withCommand : Command args flags result -> GroupParser result -> GroupParser result
 withCommand command (GroupParser { knownCommands, parseFn = next }) =
@@ -137,6 +172,18 @@ withCommand command (GroupParser { knownCommands, parseFn = next }) =
 
 
 {-| Embeds a group of commands into an existing group, accessible by the given prefix.
+
+    remoteCommands : Argparse.Parser.GroupParser Command
+    remoteCommands =
+        Argparse.Parser.defineGroup
+            |> Argparse.Parser.withCommand addRemoteCommand    -- word = "add"
+            |> Argparse.Parser.withCommand listRemoteCommand   -- word = "list"
+
+    Argparse.Parser.defineGroup
+        |> Argparse.Parser.withPrefix "remote" remoteCommands
+
+This makes `mytool remote add ...` and `mytool remote list` valid invocations.
+`mytool remote --help` lists the commands under the prefix.
 -}
 withPrefix : String -> GroupParser result -> GroupParser result -> GroupParser result
 withPrefix prefix prefixedCommands (GroupParser { knownCommands, parseFn = nextCommand }) =
@@ -652,8 +699,23 @@ type ArgumentParser val
         }
 
 
-{-| Defines an argument value. The `fn` property is the function that parses
-the `String` representation of an argument into its final form.
+{-| Defines how a raw string argument is converted to a typed value.
+
+* `label` — the placeholder name shown in usage lines, e.g. `"count"` renders as `<count>`
+* `fn` — converts the raw string to the target type; return `Nothing` to signal a parse failure
+* `examples` — one or more example values shown in `--help` output
+
+For example, an integer parser:
+
+    intParser : Argparse.Parser.ValueParser Int
+    intParser =
+        { label = "count"
+        , fn = String.toInt
+        , examples = [ "1", "10" ]
+        }
+
+    -- mytool run --limit 5
+    Argparse.Parser.flag (Argparse.Parser.LongOnly "limit") intParser "Maximum number of items"
 -}
 type alias ValueParser val =
     { label : String
@@ -1023,6 +1085,28 @@ oneOfArgs argParsers =
 
 
 {-| Flags are prefixed with `--` and are meant to customize a command.
+Build a `FlagParser` by seeding [initFlags](#initFlags) with a record constructor,
+then chaining [toggle](#toggle) and [flag](#flag):
+
+    type alias MyFlags =
+        { verbose : Bool
+        , output : Maybe Path
+        }
+
+    myFlags : Argparse.Parser.FlagParser MyFlags
+    myFlags =
+        Argparse.Parser.initFlags (\verbose output -> { verbose = verbose, output = output })
+            |> Argparse.Parser.toggle
+                (Argparse.Parser.Both { long = "verbose", short = "v" })
+                "Show detailed output"
+            |> Argparse.Parser.flag
+                (Argparse.Parser.LongOnly "output")
+                Argparse.Parser.pathParser
+                "Write output to this file"
+
+This accepts `--verbose` (or `-v`) and `--output <path>`:
+
+    mytool run --verbose --output build/result.txt
 -}
 type FlagParser val
     = FlagParser
@@ -1351,6 +1435,19 @@ stringParser =
     , fn = Just
     , examples =
         [ "buy milk"
+        ]
+    }
+
+
+{-| For any `Int` value.
+-}
+intParser : ValueParser Int
+intParser =
+    { label = "int"
+    , fn = String.toInt
+    , examples =
+        [ "1"
+        , "10"
         ]
     }
 
