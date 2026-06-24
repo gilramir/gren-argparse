@@ -1,10 +1,13 @@
 # gren-argparse
 
-Declarative command-line argument parsing for Gren, with built-in `--help`,
-`--version`, and prettified error messages.
+The gren-argparse package provides declarative command-line argument
+parsing for Gren, with built-in `--help` and `--version` options, and
+prettified error messages.
 
-Extracted from the Gren compiler's CLI (`gren init`, `gren make`, …). Three
-modules:
+This package is based on code that was orignally extracted from the
+Gren compiler's CLI package, but it has since been extended greatly.
+
+The 3 modules are:
 
 - **`Argparse.Parser`** — turn `argv` into a value of your own command type. Pure;
   no I/O.
@@ -14,45 +17,50 @@ modules:
   into a `Node` program, printing parse errors to stderr and exiting `1`,
   printing help to stdout, and handing successful commands to you.
 
-The sections below double as a walkthrough: a tiny todo tool, `todo`, built up
-from its command type to a program that parses arguments, prints help, and
-reports the right exit code.
+## Example
+
+The sections below give a walkthrough of building a tiny "todo" tool,
+which can be run like this:
 
 ```
-todo add "buy milk" --done
-todo list
+% todo add "buy milk" --done
+% todo add "buy milk" -d
+% todo list
 ```
-
-If you just want the API surface, the module docs (`gren docs`) are the
-reference.
 
 ## How it works
 
-You never write imperative argument parsing. You **describe** your CLI as a
-value, hand it the raw arguments, and get back a value of *your own* command
+You never write imperative argument parsing. You describe your CLI as a
+value, hand it the raw arguments, and get back a value of your own command
 type to pattern-match on:
 
 ```
-argv ──▶ Argparse.Parser.run argv app ──▶ CommandParseResult YourCommand ──▶ you dispatch
+argv ──▶  Argparse.Parser.run argv app
+          ──▶ CommandParseResult YourCommand
+               ──▶ you dispatch
 ```
 
 Parsing is a pure function: it does no I/O and never exits the process. That
-purity is the whole point — it makes the parser testable and lets *you* decide
-what to print and which exit code to use. `run` handles `--help`, `--version`,
-the bare-invocation help screen, unknown commands, and missing/invalid flags
-and arguments — each as a constructor of `CommandParseResult`. `Argparse.Program` is
-an opinionated wrapper that makes those decisions for you so you don't have to.
+purity makes the parser testable and lets you decide
+what to print and which exit code to use.
 
-There are three layers, which you compose:
+`run` handles `--help`, `--version`, the bare-invocation help screen,
+unknown commands, and missing/invalid flags and arguments, each as a
+constructor of `CommandParseResult`.
 
-1. **Commands** — the words a user types (`add`, `list`, `remote add`).
+`Argparse.Program` is an opinionated wrapper that makes those decisions
+for you so you don't have to.
+
+There are three layers for you to compose:
+
+1. **Commands** — the sub-commands a user types (`add`, `list`, `remote add`).
 2. **Arguments** — the positional values after the command (`"buy milk"`).
-3. **Flags** — the `--long` options (`--done`).
+3. **Flags** — the long or short options (`--done` or `-d`).
 
 ## 1. Your command type
 
-Start from the type you actually want to handle. This is *your* type, not the
-library's — the parser's job is to produce it.
+Define a type which represents your command-line. This Argparse module
+will return this type back to you.
 
 ```gren
 type Command
@@ -87,7 +95,7 @@ parser =
                         }
                 , flags =
                     Argparse.Parser.initFlags (\done -> { done = done })
-                        |> Argparse.Parser.toggle "done" "Mark it already done"
+                        |> Argparse.Parser.toggle (Argparse.Parser.Both { long = "done", short = "d" }) "Mark it already done"
                 , commonDescription = Just "Add a task to the list."
                 , summary = "The `add` command appends a task:"
                 , example = PP.words "todo add \"buy milk\""
@@ -108,31 +116,47 @@ parser =
 ```
 
 You can also nest a whole group under a prefix word with `withPrefix`, giving
-`git`/`click`-style subcommand trees (`todo remote add origin`).
+`git`-style subcommand trees (`todo remote add origin`).
 
-A few things worth knowing:
+**Arguments** consume the whole positional array at once. Pick the combinator
+for the arity you want:
 
-- **Arguments** consume the whole positional array at once. Pick the combinator
-  for the arity you want: `noArgs`, `oneArg`/`twoArgs`/`threeArgs` (exact),
-  `optionalArg` (`?` → `Maybe`), `zeroOrMoreArgs` (`*`), `oneOrMoreArgs` (`+`),
-  with `mapArgs`/`oneOfArgs` for variations. (There's no "one required then
-  variadic rest" — some gaps are deliberate.) Each positional takes an
-  `Arg { value, help }` (a `ValueParser` plus per-argument help text).
-- **Flags** are built type-safely. `initFlags` seeds a record constructor;
-  `toggle` adds a `Bool`, `flag` adds a `Maybe value`. Each chained combinator
-  fills one constructor argument, so the flags record is compiler-checked. Only
-  `--long` flags exist; there are no short flags (the lone exception is `-h`,
-  honored as an alias for `--help`), and value flags are always optional.
-- A **`ValueParser`** is the unit of type conversion, shared by arguments and
-  value flags. It's just a record — write your own in a few lines:
+- `noArgs` — no positional arguments
+- `oneArg` / `twoArgs` / `threeArgs` — exact arity
+- `optionalArg` — zero or one (`Maybe`)
+- `zeroOrMoreArgs` — zero or more
+- `oneOrMoreArgs` — one or more
+- `mapArgs` / `oneOfArgs` — custom variations or mixed arity
 
-  ```gren
-  textParser : Argparse.Parser.ValueParser String
-  textParser =
-      { label = "text", fn = Just, examples = [ "buy milk" ] }
-  ```
+Each positional takes an `Arg { value, help }` — a `ValueParser` (see below)
+plus per-argument help text.
 
-  Built-ins: `pathParser`, `grenFileParser`.
+**Flags** are built type-safely: `initFlags` seeds a record constructor, then
+each combinator fills one argument, so the final flags record is
+compiler-checked.
+
+- `toggle name desc` — adds a `Bool` field (flag present or absent)
+- `flag name valueParser desc` — adds a `Maybe value` field
+
+A flag's name is a `FlagName`, which controls which spellings the user can type:
+
+- `LongOnly "verbose"` → `--verbose`
+- `ShortOnly "v"` → `-v`
+- `Both { long = "verbose", short = "v" }` → either `--verbose` or `-v` (help shows both)
+
+Value flags are always optional (`Maybe`); there is no "required option" at the
+parse layer.
+
+A **`ValueParser`** is the unit of type conversion, shared by arguments and
+value flags. It's just a record — write your own in a few lines:
+
+```gren
+textParser : Argparse.Parser.ValueParser String
+textParser =
+    { label = "text", fn = Just, examples = [ "buy milk" ] }
+```
+
+Built-ins: `pathParser`, `grenFileParser`.
 
 `--help` (and its alias `-h`) and `--version` are handled for you; you don't
 declare them.
