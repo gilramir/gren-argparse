@@ -33,7 +33,7 @@ back and decide what to print and what exit code to use.
 you: CLI errors go to stderr, help goes to stdout, and a successful parse calls your
 handler.
 
-## 1. Define your command type
+## 1. Define your program's options type
 
 This is your type; the parser's job is to produce it.
 
