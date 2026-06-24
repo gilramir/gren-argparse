@@ -299,6 +299,19 @@ prefixHelpText appName prefixName (GroupParser { knownCommands }) =
 
 
 {-| Definition of a command.
+
+- `word` — the sub-command word the user types (e.g. `"add"` → `todo add …`).
+- `arguments` — the positional arguments this command accepts.
+- `flags` — the flags this command accepts.
+- `commonDescription` — if `Just`, a one-line description shown next to this
+  command in the app-level `--help` listing. Pass `Nothing` to hide the command
+  from that listing.
+- `summary` — a sentence or two shown at the top of this command's own
+  `--help` page.
+- `example` — a usage example rendered below the summary on this command's
+  `--help` page.
+- `builder` — converts the parsed arguments and flags into your own command
+  type.
 -}
 type alias Command args flags result =
     { word : String
