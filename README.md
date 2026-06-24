@@ -31,7 +31,8 @@ back and decide what to print and what exit code to use.
 
 `Argparse.Program` is an optional wrapper that handles the bootstrapping for
 you: CLI errors go to stderr, help goes to stdout, and a successful parse calls your
-handler.
+handler. Then your handler tells `Program` which return code the process should
+exit with.
 
 ## 1. Define your program's options type
 
@@ -88,7 +89,7 @@ parser =
     }
 ```
 
-You can nest groups under a prefix word with `withPrefix` to get
+Note: You can nest groups under a prefix word with `withPrefix` to get
 `git`-style subcommands like `todo remote add origin`.
 
 ### Arguments
