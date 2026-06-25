@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.15.0/.schema/devbox.schema.json",
+  "packages": [
+    "nodejs@22",
+    "gren@0.6"
+  ],
+  "shell": {
+    "scripts": {
+      "build": [
+        "gren make"
+      ],
+      "test": [
+        "cd examples/with-permissions",
+        "gren make Main --output=app",
+        "cd ../../examples/root-with-permissions",
+        "gren make Main --output=app",
+        "cd ../../examples/multiline-error",
+        "gren make Main --output=app",
+        "cd ../../tests/",
+        "gren run Main"
+      ]
+    }
+  }
+}

@@ -2,7 +2,7 @@
     "type": "package",
     "platform": "node",
     "name": "gilramir/gren-argparse",
-    "summary": "Declarative command-line argument parsing with built-in help",
+    "summary": "Declarative command-line argument parsing for node-platform Gren programs",
     "license": "BSD-3-Clause",
     "version": "1.0.0",
     "exposed-modules": [
