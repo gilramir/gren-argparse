@@ -8,8 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 argument parsing, extracted from the Gren compiler's own CLI. (This is the directory
 formerly named `gren-cli`.) It exposes three
 modules: `Argparse.Parser`, `Argparse.PrettyPrinter`, and `Argparse.Program`. Target Gren is
-`0.6.x` (`platform: node`). Its first consumer is the sibling `gren-format` repo —
-the standalone `gren-format` CLI depends on it locally (`gilramir/gren-argparse: local:../gren-argparse`).
+`0.6.x` (`platform: node`).
 
 ## Commands
 
@@ -173,12 +172,6 @@ return `Document`s, keeping output formatting separate from I/O.
   and type needs a `{-| … -}` doc comment and a matching `@docs` entry in the
   module header, or `gren docs` fails. Keep both in sync when adding/removing
   exports.
-- `platform: node` is required *only* by `pathParser` (`FileSystem.Path`).
-  Dropping it and the `gren-lang/node` dependency would make the package
-  `platform: common` (browser-capable).
-- `semanticVersionParser` / `packageNameParser` were intentionally removed from
-  the original compiler version to avoid a `gren-lang/compiler-common`
-  dependency; re-add them only if building Gren-specific tooling.
 - Several features are **intentionally missing** vs. Python `argparse`
   (count/append, mutually-exclusive groups, required options, mixed arity).
   Before "adding a missing feature," check whether the gap is deliberate — many

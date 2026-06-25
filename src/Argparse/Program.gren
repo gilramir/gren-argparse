@@ -35,7 +35,7 @@ and call `Node.setExitCode` yourself wherever you need it. See `examples/manual/
 for a complete working example that exits `2` on usage errors.
 
 If all you need is access to subsystem permissions (filesystem, terminal, child
-processes, …), you don't have to drop down that far: use
+processes, …), you can use
 [runWithContext](#runWithContext), which lets you run your own initialization
 before the command handler while keeping all of the boilerplate above.
 
@@ -59,10 +59,8 @@ decides the non-zero behavior.
   - `ExitValue n` — exit `n`, print nothing
   - `ExitMessageValue { message, value }` — print `message` to stderr, then exit `value`
 
-`ExitFailure` is for "the command ran correctly, but the answer is no": a check
-that didn't pass, a search with no matches, a build that found errors.
-`ExitMessage` is for "something went wrong and here is why". The `…Value`
-variants let you choose a specific exit code when `1` isn't the right signal.
+Here is an example of using `ExitFalure` after having already printed the error
+message to stderr.
 
     check : Node.Environment -> Cmd -> Task Argparse.Program.Failure {}
     check env cmd =
@@ -173,8 +171,7 @@ handed to every `onCommand` invocation.
 
 Parse errors, `--help`/`--version`, and the [Failure](#Failure)→exit-code
 mapping are handled exactly as in [run](#run). The `context` is acquired up
-front, so it is available even on the help/error paths; that's harmless, since
-acquiring a permission performs no I/O.
+front.
 -}
 runWithContext :
     { parser : Argparse.Parser.App cmd
