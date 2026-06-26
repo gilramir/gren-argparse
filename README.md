@@ -245,6 +245,11 @@ cd examples/one-level
 ./run.sh --help
 ```
 
+If you use devbox, you can build all examlpes with:
+```bash
+devbox run examples
+```
+
 ## Testing
 
 The parser is pure, so you can test it directly with `gren-lang/test`:
@@ -252,4 +257,9 @@ The parser is pure, so you can test it directly with `gren-lang/test`:
 ```bash
 cd tests
 ./run-tests.sh
+```
+
+If you use devbox, just run:
+```bash
+devbox run test
 ```

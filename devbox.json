@@ -18,6 +18,22 @@
         "gren make Main --output=app",
         "cd ../../tests/",
         "gren run Main"
+      ],
+      "examples": [
+        "cd examples/manual",
+        "gren make Main --output=app",
+        "cd ../../examples/multiline-error",
+        "gren make Main --output=app",
+        "cd ../../examples/no-subcommand",
+        "gren make Main --output=app",
+        "cd ../../examples/one-level",
+        "gren make Main --output=app",
+        "cd ../../examples/root-with-permissions",
+        "gren make Main --output=app",
+        "cd ../../examples/two-level",
+        "gren make Main --output=app",
+        "cd ../../examples/with-permissions",
+        "gren make Main --output=app"
       ]
     }
   }
