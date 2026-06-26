@@ -1,4 +1,10 @@
-module Argparse.Program exposing ( Failure(..), run, runWithContext, runRoot, runRootWithContext )
+module Argparse.Program exposing
+    ( Failure(..)
+    , run
+    , runWithContext
+    , runRoot
+    , runRootWithContext
+    )
 
 {-| A convenience wrapper that turns a [Argparse.Parser.App](Argparse.Parser#App) into a
 ready-to-run Node program, handling the boilerplate most command-line tools
@@ -47,7 +53,7 @@ import Argparse.PrettyPrinter as PP
 import Init
 import Node
 import Stream.Log
-import Task exposing (Task)
+import Task exposing ( Task )
 
 
 {-| How a command handler signals failure. A handler returns `Task Failure {}`;
@@ -175,7 +181,8 @@ front.
 -}
 runWithContext :
     { parser : Argparse.Parser.App cmd
-    , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task (Cmd a)
+    , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task
+        (Cmd a)
     , onCommand : Node.Environment -> context -> cmd -> Task Failure {}
     }
     -> Node.SimpleProgram a
@@ -190,7 +197,10 @@ runWithContext { parser, init, onCommand } =
             Node.endSimpleProgram <|
                 when Argparse.Parser.run (Array.dropFirst 2 env.args) parser is
                     Argparse.Parser.UnknownCommand name ->
-                        failWith (PP.text ("I don't recognize this command: " ++ name))
+                        failWith
+                            (PP.text
+                                ("I don't recognize this command: "
+                                    ++ name))
 
                     Argparse.Parser.BadFlags err ->
                         failWith (Argparse.Parser.flagErrorPrettified err)
@@ -292,7 +302,8 @@ runRootWithContext :
     { name : String
     , version : String
     , command : Argparse.Parser.Command args flags cmd
-    , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task (Cmd a)
+    , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task
+        (Cmd a)
     , onCommand : Node.Environment -> context -> cmd -> Task Failure {}
     }
     -> Node.SimpleProgram a
@@ -313,15 +324,23 @@ runRootWithContext { name, version, command, init, onCommand } =
                         Stream.Log.line env.stdout version
 
                     _ ->
-                        when Argparse.Parser.runCommand name args { command | word = "" } is
+                        when
+                        Argparse.Parser.runCommand name args
+                            { command | word = "" } is
                             Argparse.Parser.UnknownCommand cmdName ->
-                                failWith (PP.text ("I don't recognize this command: " ++ cmdName))
+                                failWith
+                                    (PP.text
+                                        ("I don't recognize this command: "
+                                            ++ cmdName))
 
                             Argparse.Parser.BadFlags err ->
-                                failWith (Argparse.Parser.flagErrorPrettified err)
+                                failWith
+                                    (Argparse.Parser.flagErrorPrettified err)
 
                             Argparse.Parser.BadArguments err ->
-                                failWith (Argparse.Parser.argumentErrorPrettified err)
+                                failWith
+                                    (Argparse.Parser.argumentErrorPrettified
+                                        err)
 
                             Argparse.Parser.HelpText doc ->
                                 Stream.Log.line env.stdout (PP.toString doc)

@@ -1,4 +1,4 @@
-module Test.Argparse.Program exposing (tests)
+module Test.Argparse.Program exposing ( tests )
 
 {-| Integration tests for `Argparse.Program`'s `Outcome` → exit-code mapping.
 
@@ -29,11 +29,17 @@ directory, mirroring how the examples are meant to be used (`./run.sh …`), and
 so each can resolve the non-empty `gren.json` that ships alongside it.
 -}
 
-import Bytes exposing (Bytes)
+import Bytes exposing ( Bytes )
 import ChildProcess
-import Task exposing (Task)
+import Task exposing ( Task )
 import Expect
-import Test.Runner.Effectful as Effectful exposing (Test, describe, await, awaitError, test)
+import Test.Runner.Effectful as Effectful exposing
+    ( Test
+    , describe
+    , await
+    , awaitError
+    , test
+    )
 
 
 tests : ChildProcess.Permission -> Test
@@ -72,12 +78,15 @@ outcomeTests cpPerm { label, dir, argsFor } =
 -- `node app <args...>`, run in the given example's own directory so the example
 -- can resolve input files the way its docs do (e.g. `gren.json`, a non-empty
 -- file that ships with each example).
-runExample : ChildProcess.Permission -> String -> Array String -> Task ChildProcess.FailedRun ChildProcess.SuccessfulRun
+runExample :
+    ChildProcess.Permission
+    -> String
+    -> Array String
+    -> Task ChildProcess.FailedRun ChildProcess.SuccessfulRun
 runExample cpPerm dir args =
-    ChildProcess.run cpPerm "node"
-        (Array.pushFirst "app" args)
-        { ChildProcess.defaultRunOptions
-            | workingDirectory = ChildProcess.SetWorkingDirectory dir
+    ChildProcess.run cpPerm "node" (Array.pushFirst "app" args)
+        { ChildProcess.defaultRunOptions | workingDirectory =
+            ChildProcess.SetWorkingDirectory dir
         }
 
 
@@ -90,47 +99,46 @@ succeedsTest : ChildProcess.Permission -> String -> Array String -> Test
 succeedsTest cpPerm dir args =
     -- gren.json ships with the example and is non-empty → exit 0, size on stdout.
     await "count of a non-empty file"
-        (runExample cpPerm dir args)
-        <| \{ stdout, stderr } ->
-            describe "non-empty file succeeds"
-                [ test "reports the size on stdout" <| \_ ->
-                    Expect.equal True (String.contains "bytes" (bytesToString stdout))
-                , test "writes nothing to stderr" <| \_ ->
-                    Expect.equal "" (bytesToString stderr)
-                ]
+        (runExample cpPerm dir args) <| \{ stdout, stderr } ->
+        describe "non-empty file succeeds"
+            [ test "reports the size on stdout" <| \_ ->
+                Expect.equal True
+                    (String.contains "bytes" (bytesToString stdout))
+            , test "writes nothing to stderr" <| \_ ->
+                Expect.equal "" (bytesToString stderr)
+            ]
 
 
 failsQuietlyTest : ChildProcess.Permission -> String -> Array String -> Test
 failsQuietlyTest cpPerm dir args =
     -- /dev/null reads as empty → Task.fail Argparse.Program.ExitFailure → exit 1, note on stderr,
     -- nothing on stdout.
-    awaitError "count of an empty file"
-        (runExample cpPerm dir args)
-        <| \failure ->
-            whenProgramError "empty file fails quietly" failure <| \{ exitCode, stdout, stderr } ->
-                [ test "exits 1" <| \_ ->
-                    Expect.equal 1 exitCode
-                , test "writes nothing to stdout" <| \_ ->
-                    Expect.equal "" (bytesToString stdout)
-                , test "explains itself on stderr" <| \_ ->
-                    Expect.equal True (String.contains "is empty" (bytesToString stderr))
-                ]
+    awaitError "count of an empty file" (runExample cpPerm dir args) <| \failure
+        ->
+        whenProgramError "empty file fails quietly"
+            failure <| \{ exitCode, stdout, stderr } ->
+            [ test "exits 1" <| \_ -> Expect.equal 1 exitCode
+            , test "writes nothing to stdout" <| \_ ->
+                Expect.equal "" (bytesToString stdout)
+            , test "explains itself on stderr" <| \_ ->
+                Expect.equal True
+                    (String.contains "is empty" (bytesToString stderr))
+            ]
 
 
 errorsTest : ChildProcess.Permission -> String -> Array String -> Test
 errorsTest cpPerm dir args =
     -- A missing file fails the task → exit 1, diagnostic on stderr.
     awaitError "count of a missing file"
-        (runExample cpPerm dir args)
-        <| \failure ->
-            whenProgramError "missing file errors" failure <| \{ exitCode, stdout, stderr } ->
-                [ test "exits 1" <| \_ ->
-                    Expect.equal 1 exitCode
-                , test "writes nothing to stdout" <| \_ ->
-                    Expect.equal "" (bytesToString stdout)
-                , test "writes a diagnostic to stderr" <| \_ ->
-                    Expect.notEqual "" (bytesToString stderr)
-                ]
+        (runExample cpPerm dir args) <| \failure ->
+        whenProgramError "missing file errors"
+            failure <| \{ exitCode, stdout, stderr } ->
+            [ test "exits 1" <| \_ -> Expect.equal 1 exitCode
+            , test "writes nothing to stdout" <| \_ ->
+                Expect.equal "" (bytesToString stdout)
+            , test "writes a diagnostic to stderr" <| \_ ->
+                Expect.notEqual "" (bytesToString stderr)
+            ]
 
 
 -- A failed task's `String` is printed to stderr verbatim — it must NOT be run
@@ -141,20 +149,19 @@ errorsTest cpPerm dir args =
 multilineErrorTest : ChildProcess.Permission -> Test
 multilineErrorTest cpPerm =
     awaitError "task-failure diagnostic preserves newlines"
-        (runExample cpPerm "../examples/multiline-error" [])
-        <| \failure ->
-            whenProgramError "multi-line stderr diagnostic" failure <| \{ exitCode, stderr } ->
-                let
-                    text =
-                        bytesToString stderr
-                in
-                [ test "exits 1" <| \_ ->
-                    Expect.equal 1 exitCode
-                , test "keeps the newline between the two lines" <| \_ ->
-                    Expect.equal True (String.contains "line one\nline two" text)
-                , test "does not collapse the newline into a space" <| \_ ->
-                    Expect.equal False (String.contains "line one line two" text)
-                ]
+        (runExample cpPerm "../examples/multiline-error" []) <| \failure ->
+        whenProgramError "multi-line stderr diagnostic"
+            failure <| \{ exitCode, stderr } ->
+            let
+                text =
+                    bytesToString stderr
+            in
+            [ test "exits 1" <| \_ -> Expect.equal 1 exitCode
+            , test "keeps the newline between the two lines" <| \_ ->
+                Expect.equal True (String.contains "line one\nline two" text)
+            , test "does not collapse the newline into a space" <| \_ ->
+                Expect.equal False (String.contains "line one line two" text)
+            ]
 
 
 -- A child process can fail two ways: the program itself exited non-zero
@@ -177,5 +184,4 @@ whenProgramError description failure toTests =
                     ("Could not launch the example program '"
                         ++ program
                         ++ "': "
-                        ++ errorCode
-                    )
+                        ++ errorCode)

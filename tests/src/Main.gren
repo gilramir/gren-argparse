@@ -1,9 +1,9 @@
-module Main exposing (main)
+module Main exposing ( main )
 
 import ChildProcess
 import Init
 import Node
-import Test.Runner.Effectful as Effectful exposing (run, describe, wrap)
+import Test.Runner.Effectful as Effectful exposing ( run, describe, wrap )
 
 import Test.Argparse.Parser
 import Test.Argparse.PrettyPrinter
@@ -16,10 +16,10 @@ main =
         Init.await ChildProcess.initialize <| \cpPerm ->
             run env <|
                 describe "gilramir/gren-argparse tests"
-                    -- The pure suites stay plain `Test.Test`; `wrap` lifts them
-                    -- into the effectful runner alongside the I/O-driven
-                    -- Argparse.Program suite.
-                    [ wrap Test.Argparse.Parser.tests
-                    , wrap Test.Argparse.PrettyPrinter.tests
-                    , Test.Argparse.Program.tests cpPerm
-                    ]
+                -- The pure suites stay plain `Test.Test`; `wrap` lifts them
+                -- into the effectful runner alongside the I/O-driven
+                -- Argparse.Program suite.
+                [ wrap Test.Argparse.Parser.tests
+                , wrap Test.Argparse.PrettyPrinter.tests
+                , Test.Argparse.Program.tests cpPerm
+                ]
