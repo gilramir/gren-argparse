@@ -50,10 +50,12 @@ before the command handler while keeping all of the boilerplate above.
 
 import Argparse.Parser
 import Argparse.PrettyPrinter as PP
+import Dict
 import Init
 import Node
 import Stream.Log
 import Task exposing ( Task )
+import Terminal
 
 
 {-| How a command handler signals failure. A handler returns `Task Failure {}`;
@@ -88,6 +90,19 @@ type Failure
     | ExitMessage String
     | ExitValue Int
     | ExitMessageValue { message : String, value : Int }
+
+
+{-| Strip ANSI color from a Document unless stdout/stderr is an interactive
+terminal and the user hasn't set NO_COLOR (https://no-color.org). -}
+renderDoc : Bool -> PP.Document -> String
+renderDoc useColor doc =
+    PP.toString
+        (if useColor then
+            doc
+
+         else
+            PP.stripColor doc
+        )
 
 
 applyFailure : Node.Environment -> Failure -> Task x {}
@@ -189,9 +204,14 @@ runWithContext :
 runWithContext { parser, init, onCommand } =
     Node.defineSimpleProgram <| \env ->
         init env <| \context ->
+        Init.await Terminal.initialize <| \terminalConfig ->
+        Init.awaitTask Node.getEnvironmentVariables <| \envVars ->
             let
+                useColor =
+                    terminalConfig /= Nothing && not (Dict.member "NO_COLOR" envVars)
+
                 failWith doc =
-                    Stream.Log.line env.stderr (PP.toString doc)
+                    Stream.Log.line env.stderr (renderDoc useColor doc)
                         |> Task.andThen (\_ -> Node.setExitCode 1)
             in
             Node.endSimpleProgram <|
@@ -209,7 +229,7 @@ runWithContext { parser, init, onCommand } =
                         failWith (Argparse.Parser.argumentErrorPrettified err)
 
                     Argparse.Parser.HelpText doc ->
-                        Stream.Log.line env.stdout (PP.toString doc)
+                        Stream.Log.line env.stdout (renderDoc useColor doc)
 
                     Argparse.Parser.Success cmd ->
                         onCommand env context cmd
@@ -310,12 +330,17 @@ runRootWithContext :
 runRootWithContext { name, version, command, init, onCommand } =
     Node.defineSimpleProgram <| \env ->
         init env <| \context ->
+        Init.await Terminal.initialize <| \terminalConfig ->
+        Init.awaitTask Node.getEnvironmentVariables <| \envVars ->
             let
                 args =
                     Array.dropFirst 2 env.args
 
+                useColor =
+                    terminalConfig /= Nothing && not (Dict.member "NO_COLOR" envVars)
+
                 failWith doc =
-                    Stream.Log.line env.stderr (PP.toString doc)
+                    Stream.Log.line env.stderr (renderDoc useColor doc)
                         |> Task.andThen (\_ -> Node.setExitCode 1)
             in
             Node.endSimpleProgram <|
@@ -343,7 +368,7 @@ runRootWithContext { name, version, command, init, onCommand } =
                                         err)
 
                             Argparse.Parser.HelpText doc ->
-                                Stream.Log.line env.stdout (PP.toString doc)
+                                Stream.Log.line env.stdout (renderDoc useColor doc)
 
                             Argparse.Parser.Success cmd ->
                                 onCommand env context cmd
