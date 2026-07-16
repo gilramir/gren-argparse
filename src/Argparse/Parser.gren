@@ -35,6 +35,7 @@ module Argparse.Parser exposing
     , initFlags
     , toggle
     , flag
+    , requiredFlag
     --
     , pathParser
     , stringParser
@@ -70,7 +71,7 @@ Into a data structure.
 
 ## Flags
 
-@docs FlagParser, FlagName, FlagParserError, flagErrorPrettified, noFlags, initFlags, toggle, flag
+@docs FlagParser, FlagName, FlagParserError, flagErrorPrettified, noFlags, initFlags, toggle, flag, requiredFlag
 
 ## Common parsers
 
@@ -646,6 +647,7 @@ runCommand appName rawTokens spec =
             { kind = Toggle
             , description = "Show this help text"
             , name = Both { long = "help", short = "h" }
+            , required = False
             }
 
         knownFlagsWithHelp =
@@ -713,8 +715,7 @@ commandHelpText appName spec =
                 (\_ flagDescription acc ->
                     Array.prepend acc
                         [ PP.text
-                            (renderFlagDisplayLine flagDescription.name
-                                flagDescription.kind)
+                            (renderFlagDisplayLine flagDescription)
                             |> PP.color PP.Cyan
                         , PP.words flagDescription.description
                             |> PP.indent
@@ -1253,6 +1254,7 @@ type alias FlagParserDescription =
     { kind : FlagKind
     , description : String
     , name : FlagName
+    , required : Bool
     }
 
 
@@ -1269,6 +1271,7 @@ type FlagParserError
     | FlagParserMissingValue { knownFlags : KnownFlags, flagName : String }
     | FlagParserInvalidValue { knownFlags : KnownFlags, flagName : String }
     | FlagParserUnknownFlag { knownFlags : KnownFlags, flagName : String }
+    | FlagParserMissingRequiredFlag { knownFlags : KnownFlags, flagName : String }
 
 
 {-| Returns a prettified error message for the given [FlagParserError](#FlagParserError).
@@ -1308,6 +1311,16 @@ flagErrorPrettified err =
                 , describeFlagUse knownFlags flagName
                 ]
 
+        FlagParserMissingRequiredFlag { knownFlags, flagName } ->
+            PP.verticalBlock
+                [ PP.words "This flag is required, but was not provided:"
+                , PP.empty
+                , PP.text (renderFlagKey flagName)
+                    |> PP.color PP.Red
+                    |> PP.indent
+                , describeFlagUse knownFlags flagName
+                ]
+
         FlagParserUnknownFlag { knownFlags, flagName } ->
             let
                 otherFlags =
@@ -1315,7 +1328,7 @@ flagErrorPrettified err =
                         (\_ desc doc ->
                             Array.pushLast
                                 (PP.text <|
-                                    renderFlagDisplayLine desc.name desc.kind)
+                                    renderFlagDisplayLine desc)
                                 doc) [] knownFlags
 
                 suffix =
@@ -1408,8 +1421,8 @@ renderFlagKey key =
         "--" ++ key
 
 
-renderFlagDisplayLine : FlagName -> FlagKind -> String
-renderFlagDisplayLine flagName kind =
+renderFlagDisplayLine : FlagParserDescription -> String
+renderFlagDisplayLine { name, kind, required } =
     let
         valueSuffix =
             when kind is
@@ -1418,16 +1431,26 @@ renderFlagDisplayLine flagName kind =
 
                 TakesValue { title } ->
                     "=<" ++ title ++ ">"
+
+        requiredSuffix =
+            if required then
+                " (required)"
+
+            else
+                ""
+
+        spelling =
+            when name is
+                LongOnly long ->
+                    "--" ++ long ++ valueSuffix
+
+                ShortOnly short ->
+                    "-" ++ short ++ valueSuffix
+
+                Both { long, short } ->
+                    "--" ++ long ++ valueSuffix ++ ", -" ++ short
     in
-    when flagName is
-        LongOnly long ->
-            "--" ++ long ++ valueSuffix
-
-        ShortOnly short ->
-            "-" ++ short ++ valueSuffix
-
-        Both { long, short } ->
-            "--" ++ long ++ valueSuffix ++ ", -" ++ short
+    spelling ++ requiredSuffix
 
 
 {-| A parser that verifies that no flags have been provided.
@@ -1471,6 +1494,7 @@ toggle flagNameSpec desc (FlagParser { knownFlags, parseFn = previousSteps }) =
             { kind = Toggle
             , description = desc
             , name = flagNameSpec
+            , required = False
             }
     in
     FlagParser
@@ -1519,6 +1543,7 @@ flag flagNameSpec valueParserFn desc
                     }
             , description = desc
             , name = flagNameSpec
+            , required = False
             }
     in
     FlagParser
@@ -1548,6 +1573,83 @@ flag flagNameSpec valueParserFn desc
 
                         Nothing ->
                             Ok (next Nothing)
+
+                Err err ->
+                    Err err
+        }
+
+
+{-| Like [flag](#flag), but the flag *must* be provided. It fills its
+constructor argument with the parsed value directly (`a`, not `Maybe a`), and if
+the flag is absent the whole parse fails with
+[FlagParserMissingRequiredFlag](#FlagParserError). Use it for inputs a command
+cannot run without, when a positional argument would be awkward — for example
+several unordered path options:
+
+    Argparse.Parser.initFlags
+        (\app cov index out -> { app = app, cov = cov, index = index, out = out })
+        |> Argparse.Parser.requiredFlag (Argparse.Parser.LongOnly "app") Argparse.Parser.pathParser "The application to inspect"
+        |> Argparse.Parser.requiredFlag (Argparse.Parser.LongOnly "cov") Argparse.Parser.pathParser "The coverage directory"
+        |> Argparse.Parser.requiredFlag (Argparse.Parser.LongOnly "index") Argparse.Parser.pathParser "The index file"
+        |> Argparse.Parser.flag (Argparse.Parser.LongOnly "out") Argparse.Parser.pathParser "Where to write the result"
+
+It composes in the same `initFlags` chain as [flag](#flag) and
+[toggle](#toggle); required flags are marked as such in `--help`.
+-}
+requiredFlag :
+    FlagName
+    -> ValueParser a
+    -> String
+    -> FlagParser (a -> b)
+    -> FlagParser b
+requiredFlag flagNameSpec valueParserFn desc
+        (FlagParser { knownFlags, parseFn = previousSteps }) =
+    let
+        key =
+            canonicalKey flagNameSpec
+
+        descriptor =
+            { kind =
+                TakesValue
+                    { title = valueParserFn.label
+                    , examples = valueParserFn.examples
+                    }
+            , description = desc
+            , name = flagNameSpec
+            , required = True
+            }
+    in
+    FlagParser
+        { knownFlags = Dict.set key descriptor knownFlags
+        , parseFn = \flagDescriptions opts ->
+            when previousSteps flagDescriptions (Dict.remove key opts) is
+                Ok next ->
+                    when Dict.get key opts is
+                        Just "" ->
+                            Err <|
+                                FlagParserMissingValue
+                                { knownFlags = flagDescriptions
+                                , flagName = key
+                                }
+
+                        Just value ->
+                            when valueParserFn.fn value is
+                                Just parsedValue ->
+                                    Ok (next parsedValue)
+
+                                Nothing ->
+                                    Err <|
+                                        FlagParserInvalidValue
+                                        { knownFlags = flagDescriptions
+                                        , flagName = key
+                                        }
+
+                        Nothing ->
+                            Err <|
+                                FlagParserMissingRequiredFlag
+                                { knownFlags = flagDescriptions
+                                , flagName = key
+                                }
 
                 Err err ->
                     Err err

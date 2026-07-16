@@ -127,9 +127,9 @@ wrappers and matches on `CommandParseResult` directly.
    needs a sequential redesign of `ArgumentParser`.
 
 3. **Flags** (`FlagParser`). Built type-safely: `initFlags` seeds a record
-   constructor, then `toggle` (adds `Bool`) and `flag` (adds `Maybe value`)
-   chain on, each filling one constructor argument so the final flags record is
-   compiler-checked. `FlagKind` is a sum type (`Toggle` | `TakesValue { title,
+   constructor, then `toggle` (adds `Bool`), `flag` (adds `Maybe value`), and
+   `requiredFlag` (adds a bare `value`) chain on, each filling one constructor
+   argument so the final flags record is compiler-checked. `FlagKind` is a sum type (`Toggle` | `TakesValue { title,
    examples }`) so a toggle structurally cannot carry a value type. A flag's
    name is a `FlagName` — `LongOnly "all"` (`--all`), `ShortOnly "a"` (`-a`), or
    `Both { long = "all", short = "a" }` (both spellings, help shows `--all, -a`).
@@ -138,8 +138,10 @@ wrappers and matches on `CommandParseResult` directly.
    not starting with `--` is positional. `--help`/`-h` is still special-cased
    separately (it's intercepted before flag parsing, via `Both`-style handling
    in `run`/`runPrefix`/`runCommand`), so a command needn't declare it. Repeated
-   flags = last-one-wins (no count/append). Value flags are always optional
-   (`Maybe`); there is no "required option" at the parse layer.
+   flags = last-one-wins (no count/append). Value flags are optional (`Maybe`)
+   via `flag`, or mandatory via `requiredFlag` — an absent required flag fails
+   the parse with `FlagParserMissingRequiredFlag`, and required flags are
+   annotated `(required)` in `--help`.
 
 A `Command` ties these together with a `builder : args -> flags -> result` that
 bridges parsed input into the user's own command sum type. A `ValueParser`
@@ -173,7 +175,7 @@ return `Document`s, keeping output formatting separate from I/O.
   module header, or `gren docs` fails. Keep both in sync when adding/removing
   exports.
 - Several features are **intentionally missing** vs. Python `argparse`
-  (count/append, mutually-exclusive groups, required options, mixed arity).
+  (count/append, mutually-exclusive groups, mixed arity).
   Before "adding a missing feature," check whether the gap is deliberate — many
   have a documented workaround. (Short flags are *not* missing: see `FlagName`'s
   `ShortOnly`/`Both` in the Flags section above.)

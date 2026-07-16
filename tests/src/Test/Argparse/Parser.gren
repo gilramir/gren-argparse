@@ -597,6 +597,22 @@ tests =
                     |> expectBadFlag
                         (Parser.FlagParserUnknownFlag
                             { knownFlags = Dict.empty, flagName = "-x" })
+            , describe "requiredFlag" <|
+                [ test "A present required flag parses to the value directly" <| \{} ->
+                    expectParseSuccess requiredCmd
+                        [ "make", "--output=out" ] <| \cmd ->
+                            Expect.equal (Path.fromPosixString "out") cmd.flags.output
+                , test "An absent required flag is a MissingRequiredFlag error" <| \{} ->
+                    runCommand requiredCmd [ "make" ]
+                        |> expectBadFlag
+                            (Parser.FlagParserMissingRequiredFlag
+                                { knownFlags = Dict.empty, flagName = "output" })
+                , test "A required flag with no value is a MissingValue error" <| \{} ->
+                    runCommand requiredCmd [ "make", "--output" ]
+                        |> expectBadFlag
+                            (Parser.FlagParserMissingValue
+                                { knownFlags = Dict.empty, flagName = "output" })
+                ]
             ]
         , describe "runCommand (no command word)" <|
             let
@@ -789,6 +805,10 @@ stripFlagDescriptions error =
             Parser.FlagParserUnknownFlag
                 { knownFlags = Dict.empty, flagName = flagName }
 
+        Parser.FlagParserMissingRequiredFlag { flagName } ->
+            Parser.FlagParserMissingRequiredFlag
+                { knownFlags = Dict.empty, flagName = flagName }
+
 
 testArgs : Array String
 testArgs =
@@ -856,6 +876,22 @@ testFlagsWithShortAliases =
 testFlagsShortOnly =
     Parser.initFlags (\v -> { v = v })
         |> Parser.toggle (Parser.ShortOnly "v") "verbose"
+
+
+-- A required value flag alongside an optional one, to exercise requiredFlag.
+testFlagsRequired =
+    Parser.initFlags
+        (\output debug ->
+            { output = output
+            , debug = debug
+            })
+        |> Parser.requiredFlag (Parser.LongOnly "output") Parser.pathParser
+            "output path"
+        |> Parser.toggle (Parser.LongOnly "debug") "debug desc"
+
+
+requiredCmd =
+    cmdBuilder testArgParser testFlagsRequired
 
 
 cmdBuilder argParser flagParser =
