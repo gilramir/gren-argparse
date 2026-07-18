@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.0.0
 
 - Add `requiredFlag`: a value flag that must be provided. It fills its
   constructor argument directly (`value`, not `Maybe value`) and fails the parse

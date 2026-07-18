@@ -106,11 +106,16 @@ for the arity you want:
 ### Flags
 
 Flags are type-safe: `initFlags` takes a record constructor, and each
-`toggle`/`flag` call fills in one field. The compiler checks that you've wired
-everything up correctly.
+`toggle`/`flag`/`requiredFlag` call fills in one field. The compiler checks that
+you've wired everything up correctly.
 
 - `toggle name desc` — a `Bool` (true when the flag is present)
-- `flag name valueParser desc` — a `Maybe value`
+- `flag name valueParser desc` — an optional value, so you get a `Maybe value`
+- `requiredFlag name valueParser desc` — a mandatory value, so you get the
+  `value` directly (not a `Maybe`); if the user leaves the flag out, the parse
+  fails and they're told it's missing. Handy for inputs a command can't run
+  without when a positional argument would be awkward — say several unordered
+  path options. Required flags are marked `(required)` in `--help`.
 
 A flag's name controls which spellings the user can type:
 
