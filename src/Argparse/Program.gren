@@ -92,11 +92,45 @@ type Failure
     | ExitMessageValue { message : String, value : Int }
 
 
-{-| Strip ANSI color from a Document unless stdout/stderr is an interactive
-terminal and the user hasn't set NO_COLOR (https://no-color.org). -}
-renderDoc : Bool -> PP.Document -> String
-renderDoc useColor doc =
-    PP.toString
+{-| The column budget for help and error output: the terminal's own width when
+we are attached to one, and `fallbackMaxColumns` when we are
+not (output redirected into a pipe or a file).
+
+A reported width below `minMaxColumns` is treated as bogus and ignored. This is
+not just tidiness: a terminal reporting 0 columns would send the hard splitter
+behind `Argparse.PrettyPrinter.text` into an endless loop, since a zero-width
+chunk never consumes any of the string.
+-}
+maxColumnsFor : Maybe Terminal.Configuration -> Int
+maxColumnsFor terminalConfig =
+    when terminalConfig is
+        Nothing ->
+            fallbackMaxColumns
+
+        Just { columns } ->
+            max minMaxColumns columns
+
+
+{-| The width assumed when there is no terminal to ask. -}
+fallbackMaxColumns : Int
+fallbackMaxColumns =
+    80
+
+
+{-| The narrowest width we will believe a terminal about. -}
+minMaxColumns : Int
+minMaxColumns =
+    20
+
+
+{-| Render a Document for the terminal we are talking to: wrapped to
+`maxColumns`, and with ANSI color stripped unless stdout/stderr is an
+interactive terminal and the user hasn't set NO_COLOR
+(https://no-color.org). -}
+renderDoc : { useColor : Bool, maxColumns : Int } -> PP.Document -> String
+renderDoc { useColor, maxColumns } doc =
+    PP.toStringWithOptions
+        { PP.defaultOptions | maxColumns = maxColumns }
         (if useColor then
             doc
 
@@ -207,11 +241,16 @@ runWithContext { parser, init, onCommand } =
         Init.await Terminal.initialize <| \terminalConfig ->
         Init.awaitTask Node.getEnvironmentVariables <| \envVars ->
             let
-                useColor =
-                    terminalConfig /= Nothing && not (Dict.member "NO_COLOR" envVars)
+                renderOptions =
+                    { useColor =
+                        terminalConfig
+                            /= Nothing
+                            && not (Dict.member "NO_COLOR" envVars)
+                    , maxColumns = maxColumnsFor terminalConfig
+                    }
 
                 failWith doc =
-                    Stream.Log.line env.stderr (renderDoc useColor doc)
+                    Stream.Log.line env.stderr (renderDoc renderOptions doc)
                         |> Task.andThen (\_ -> Node.setExitCode 1)
             in
             Node.endSimpleProgram <|
@@ -229,7 +268,7 @@ runWithContext { parser, init, onCommand } =
                         failWith (Argparse.Parser.argumentErrorPrettified err)
 
                     Argparse.Parser.HelpText doc ->
-                        Stream.Log.line env.stdout (renderDoc useColor doc)
+                        Stream.Log.line env.stdout (renderDoc renderOptions doc)
 
                     Argparse.Parser.Success cmd ->
                         onCommand env context cmd
@@ -336,11 +375,16 @@ runRootWithContext { name, version, command, init, onCommand } =
                 args =
                     Array.dropFirst 2 env.args
 
-                useColor =
-                    terminalConfig /= Nothing && not (Dict.member "NO_COLOR" envVars)
+                renderOptions =
+                    { useColor =
+                        terminalConfig
+                            /= Nothing
+                            && not (Dict.member "NO_COLOR" envVars)
+                    , maxColumns = maxColumnsFor terminalConfig
+                    }
 
                 failWith doc =
-                    Stream.Log.line env.stderr (renderDoc useColor doc)
+                    Stream.Log.line env.stderr (renderDoc renderOptions doc)
                         |> Task.andThen (\_ -> Node.setExitCode 1)
             in
             Node.endSimpleProgram <|
@@ -368,7 +412,7 @@ runRootWithContext { name, version, command, init, onCommand } =
                                         err)
 
                             Argparse.Parser.HelpText doc ->
-                                Stream.Log.line env.stdout (renderDoc useColor doc)
+                                Stream.Log.line env.stdout (renderDoc renderOptions doc)
 
                             Argparse.Parser.Success cmd ->
                                 onCommand env context cmd

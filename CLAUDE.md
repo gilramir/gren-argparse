@@ -161,7 +161,14 @@ later distinguishes a toggle from a value flag missing its value.
 ### Pretty printing (`Argparse.PrettyPrinter`)
 
 An opaque `Document` ADT (`Empty`, `Text`, `Words`, `Colorized`, `Indented`,
-`Block`, `VerticalBlock`) rendered by `toString`. All help and error output is
+`Block`, `VerticalBlock`) rendered by `toString`. `toString` itself does not
+wrap (`defaultOptions.maxColumns` is `Math.maxSafeInteger`); the wrapping width
+is chosen by the caller. `Argparse.Program` passes the terminal's own width,
+via `maxColumnsFor` on the `Terminal.Configuration` it already acquires for the
+color decision, and falls back to 80 when `Terminal.initialize` gives `Nothing`
+(stdout or stdin isn't a TTY). Widths under 20 are ignored: a terminal
+reporting 0 columns would put `splitByLength` — the hard splitter behind
+`text` — into an endless loop. All help and error output is
 built from these combinators — `text`, `words` (wraps on word boundaries),
 `block` (horizontal), `verticalBlock`, `indent`, `color`/`intenseColor`
 (ANSI). The error/help renderers in `Argparse.Parser`

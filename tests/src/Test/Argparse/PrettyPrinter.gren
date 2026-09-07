@@ -41,6 +41,29 @@ tests =
                     |> PP.toStringWithOptions
                         { PP.defaultOptions | maxColumns = 5 }
                     |> Expect.equal "My\nfancy\nwords"
+            , test "a line may fill the max column exactly" <| \{} ->
+                PP.words "My fancy"
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 8 }
+                    |> Expect.equal "My fancy"
+            , test "the joining space counts against the max column" <| \{} ->
+                PP.words "My fancy"
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 7 }
+                    |> Expect.equal "My\nfancy"
+            , test "no rendered line exceeds the max column" <| \{} ->
+                let
+                    text =
+                        "aaaaaaa bb ccccccccccc dddd eeeeeeeeeeeeeeeeeeee "
+                            ++ "ffffffff ggggg hhhhhhhhhh iiiiii jjj"
+                in
+                PP.words text
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 80 }
+                    |> String.split "\n"
+                    |> Array.map String.count
+                    |> Array.maximum
+                    |> Expect.equal (Just 74)
             ]
         , describe "color"
             [ test
@@ -153,6 +176,18 @@ tests =
                         { PP.defaultOptions | maxColumns = 15 }
                     |> Expect.equal
                         "    my lengthy\n    description\n    with words"
+            , test "an indented line may fill the max column exactly" <| \{} ->
+                PP.words "My fancy"
+                    |> PP.indent
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 12 }
+                    |> Expect.equal "    My fancy"
+            , test "the indent counts against the max column too" <| \{} ->
+                PP.words "My fancy"
+                    |> PP.indent
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 11 }
+                    |> Expect.equal "    My\n    fancy"
             , test "indents can be nested" <| \{} ->
                 PP.verticalBlock
                     [ PP.text "First part"

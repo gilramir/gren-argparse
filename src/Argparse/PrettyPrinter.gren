@@ -365,7 +365,7 @@ addToWordSplitter maxWidth str { currentLine, lines } =
                 String.join " " currentLine
                     |> String.count
         in
-        if String.count str + currentWidth > maxWidth then
+        if String.count str + 1 + currentWidth > maxWidth then
             addToWordSplitter maxWidth str
                 { currentLine = []
                 , lines = Array.pushLast currentLine lines
