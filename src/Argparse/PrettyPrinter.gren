@@ -22,6 +22,65 @@ module Argparse.PrettyPrinter exposing
 {-| This module lets you define how text should be formatted before printing
 it to the terminal.
 
+
+## Wrapping
+
+[toString](#toString) does not wrap: `defaultOptions.maxColumns` is
+`Math.maxSafeInteger`, so a `Document` comes out however long it is and the
+terminal makes of it what it will. Give it a column budget with
+[toStringWithOptions](#toStringWithOptions) and the text is broken to fit.
+`Argparse.Program` does this for you — it passes the width of the terminal it
+is talking to, falling back to 80 columns when there is no terminal to ask —
+so a program built on it wraps its help and error output without doing
+anything.
+
+The dots below mark the unused columns of the budget.
+
+[words](#words) breaks between words:
+
+    PP.words "a description long enough to wrap"
+        |> PP.toStringWithOptions
+            { PP.defaultOptions | maxColumns = 20 }
+
+    a description long··
+    enough to wrap······
+
+[text](#text) has no word boundaries to break at, so it breaks wherever the
+budget runs out:
+
+    a description long e
+    nough to wrap·······
+
+The lines a document wraps onto are rows of their own, so they open under the
+same [indent](#indent) as the line they came from:
+
+    PP.words "a description long enough to wrap"
+        |> PP.indent
+        |> PP.toStringWithOptions
+            { PP.defaultOptions | maxColumns = 20 }
+
+        a description···
+        long enough to··
+        wrap············
+
+Inside a [block](#block), each part is laid out against the columns its
+neighbours to the left have already taken — a part does not start at column 0
+just because it is a document of its own:
+
+    PP.block
+        [ PP.text "--flag "
+        , PP.words "a description long enough to wrap"
+        ]
+        |> PP.indent
+        |> PP.toStringWithOptions
+            { PP.defaultOptions | maxColumns = 30 }
+
+        --flag a description long·
+        enough to wrap············
+
+Only the first line of a part is squeezed that way. Once it wraps it is
+starting rows of its own, which get the whole width.
+
 @docs Document
 @docs empty, text, words, indent, block, verticalBlock
 @docs Color, color, intenseColor, stripColor
@@ -55,7 +114,15 @@ empty =
 if you want to spread text over multiple lines, use [verticalBlock](#verticalBlock).
 
 Word boundaries are also not respected. If that's important to you, you might want
-to use [words](#words)
+to use [words](#words). Under a column budget that means a long `text` is cut
+wherever the budget runs out, mid-word if that is where it lands:
+
+    PP.text "a description long enough to wrap"
+        |> PP.toStringWithOptions
+            { PP.defaultOptions | maxColumns = 20 }
+
+    a description long e
+    nough to wrap
 -}
 text : String -> Document
 text str =
@@ -68,6 +135,16 @@ text str =
 {-| Similar to [text](#text), but word boundaries are respected if the `String` has
 to be broken up over multiple lines. Whitespace between words are reduced to a single
 space.
+
+    PP.words "a description long enough to wrap"
+        |> PP.toStringWithOptions
+            { PP.defaultOptions | maxColumns = 20 }
+
+    a description long
+    enough to wrap
+
+A word wider than the whole budget still gets a line of its own — it is placed
+rather than cut.
 -}
 words : String -> Document
 words str =
@@ -75,6 +152,21 @@ words str =
 
 
 {-| The contents of the [Document](#Document) is indented one level.
+
+The indent is not just a prefix on the first line: the lines the contents wrap
+onto are rows of their own, and open under the same indent.
+
+    PP.words "a description long enough to wrap"
+        |> PP.indent
+        |> PP.toStringWithOptions
+            { PP.defaultOptions | maxColumns = 20 }
+
+        a description
+        long enough to
+        wrap
+
+The indent counts against the budget, so the text above has 16 columns to work
+with, not 20.
 -}
 indent : Document -> Document
 indent doc =
@@ -83,6 +175,25 @@ indent doc =
 
 {-| This joins multiple [Documents](#Document) into one. If possible, everything
 will be placed on a single line.
+
+Under a column budget, each part is laid out against the columns the parts to
+its left have already taken, so it breaks where the row actually runs out
+rather than where it would have if it had started the line:
+
+    PP.block
+        [ PP.text "--flag "
+        , PP.words "a description long enough to wrap"
+        ]
+        |> PP.indent
+        |> PP.toStringWithOptions
+            { PP.defaultOptions | maxColumns = 30 }
+
+        --flag a description long
+        enough to wrap
+
+Only a part's first line is squeezed that way — it is the one continuing
+somebody else's row. The lines it wraps onto are its own, and get the full
+width and the surrounding indent.
 -}
 block : Array Document -> Document
 block docs =
@@ -216,7 +327,9 @@ toString doc =
 
 {-| Different settings when converting a [Document](#Document) into `String`.
 
-* `maxColumns` defines the maximum number of characters in a line.
+* `maxColumns` defines the maximum number of characters in a line. No rendered
+  line is wider than this, indent included; see [words](#words) for how the
+  text is broken to fit, and the module header for worked examples.
 * `indentationSize` defines the number of spaces per indentation level.
 * `newlineSeparator` defines the `String` used for representing newlines.
 -}
@@ -228,6 +341,12 @@ type alias ToStringOptions =
 
 
 {-| A default set of options for converting [Document](#Document) into `String`.
+
+`maxColumns` is `Math.maxSafeInteger` here, which is to say these options do
+not wrap at all. Pass a real width to
+[toStringWithOptions](#toStringWithOptions) to get wrapping — or let
+`Argparse.Program` do it, which renders with the width of the terminal it is
+talking to and 80 columns when there is no terminal.
 -}
 defaultOptions : ToStringOptions
 defaultOptions =
@@ -243,6 +362,7 @@ toStringWithOptions : ToStringOptions -> Document -> String
 toStringWithOptions { maxColumns, indentationSize, newlineSeparator } doc =
     toStringHelper
         { indentPrefix = ""
+        , continuationPrefix = ""
         , nextIndent =
             \currentIndent -> String.repeat indentationSize " " ++ currentIndent
         , maxColumns = maxColumns
@@ -259,9 +379,18 @@ documents rendered before this one: 0 in a vertical context, and the width of
 the parts to its left inside a [block](#block). It squeezes only the *first*
 line of a document — once a document wraps, the lines after the break begin
 rows of their own and get the full width.
+
+The two prefixes are that same first-line/rest split. `indentPrefix` opens a
+document's first line and `continuationPrefix` opens the lines after a break.
+They differ only for a [block](#block) part that is not the first: its first
+line continues a row that already carries the indent, so re-emitting the
+prefix there would push four spaces into the middle of the row — but the lines
+it wraps onto are rows of their own, and belong under the indent like anything
+else.
 -}
 type alias Layout =
     { indentPrefix : String
+    , continuationPrefix : String
     , nextIndent : String -> String
     , maxColumns : Int
     , newlineSeparator : String
@@ -288,8 +417,13 @@ toStringHelper layout doc =
                 indentedText
                     |> splitByLength
                         { first = max 1 (layout.maxColumns - layout.startColumn)
-                        , rest = max 1 layout.maxColumns
+                        , rest =
+                            max 1
+                                (layout.maxColumns
+                                    - String.count layout.continuationPrefix
+                                )
                         }
+                    |> prefixWrappedLines "" layout.continuationPrefix
                     |> String.join layout.newlineSeparator
 
             else
@@ -297,22 +431,25 @@ toStringHelper layout doc =
 
         Words parts ->
             let
-                maxColumnsAfterIndent =
-                    layout.maxColumns - String.count layout.indentPrefix
-
                 wordSplitter =
                     Array.foldl
                         (addToWordSplitter
-                            { first = maxColumnsAfterIndent - layout.startColumn
-                            , rest = maxColumnsAfterIndent
+                            { first =
+                                layout.maxColumns
+                                    - layout.startColumn
+                                    - String.count layout.indentPrefix
+                            , rest =
+                                layout.maxColumns
+                                    - String.count layout.continuationPrefix
                             }
                         )
                         emptyWordSplitter
                         parts
             in
             Array.pushLast wordSplitter.currentLine wordSplitter.lines
-                |> Array.map
-                    (\line -> layout.indentPrefix ++ String.join " " line)
+                |> Array.map (String.join " ")
+                |> prefixWrappedLines layout.indentPrefix
+                    layout.continuationPrefix
                 |> String.join layout.newlineSeparator
 
         Colorized { color = clr, intense, document } ->
@@ -326,6 +463,8 @@ toStringHelper layout doc =
             toStringHelper
                 { layout
                     | indentPrefix = layout.nextIndent layout.indentPrefix
+                    , continuationPrefix =
+                        layout.nextIndent layout.continuationPrefix
                 }
                 document
 
@@ -357,7 +496,12 @@ toStringHelper layout doc =
                     Array.pushFirst
                         (toStringHelper layout first)
                         (Array.map
-                            (toStringHelper { layout | startColumn = 0 })
+                            (toStringHelper
+                                { layout
+                                    | startColumn = 0
+                                    , indentPrefix = layout.continuationPrefix
+                                }
+                            )
                             rest
                         )
                         |> String.join layout.newlineSeparator
@@ -388,6 +532,22 @@ addBlockPart layout doc { rendered, column } =
     { rendered = rendered ++ part
     , column = columnAfter layout.newlineSeparator column part
     }
+
+
+{-| Open each line with the prefix its position calls for: the first line
+continues wherever it was placed, and every line after a break starts a row of
+its own, under the indent.
+-}
+prefixWrappedLines : String -> String -> Array String -> Array String
+prefixWrappedLines firstPrefix continuationPrefix lines =
+    when Array.popFirst lines is
+        Nothing ->
+            []
+
+        Just { first, rest } ->
+            Array.pushFirst
+                (firstPrefix ++ first)
+                (Array.map (\line -> continuationPrefix ++ line) rest)
 
 
 {-| The column the row stands at after `rendered` has been written, given that

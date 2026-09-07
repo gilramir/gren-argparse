@@ -178,6 +178,14 @@ the lines start rows of their own and get the full width — and ANSI escapes
 count as zero columns when measuring it. Without that, a `block` part would
 wrap as though it began at column 0 and break in the wrong place.
 
+`Layout` splits the indent the same way, into `indentPrefix` (opens the first
+line) and `continuationPrefix` (opens the lines after a break). They differ
+only for a `block` part that is not the first: its first line continues a row
+that already carries the indent, so re-emitting the prefix there would push
+spaces into the middle of the row — but the lines it wraps onto are rows of
+their own and belong under the indent. `VerticalBlock` gives every member after
+its first `indentPrefix = continuationPrefix` for the same reason.
+
 All help and error output is
 built from these combinators — `text`, `words` (wraps on word boundaries),
 `block` (horizontal), `verticalBlock`, `indent`, `color`/`intenseColor`

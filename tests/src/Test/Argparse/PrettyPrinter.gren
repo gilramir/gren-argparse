@@ -181,6 +181,27 @@ tests =
                     |> PP.toStringWithOptions
                         { PP.defaultOptions | maxColumns = 10 }
                     |> Expect.equal "12345aaa\nbbb\naaa bbb"
+            , test "a wrapped block part continues under the indent" <| \{} ->
+                PP.block
+                    [ PP.text "--flag "
+                    , PP.words "a description long enough to wrap"
+                    ]
+                    |> PP.indent
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 30 }
+                    |> Expect.equal
+                        "    --flag a description long\n    enough to wrap"
+            , test "vertical rows inside a block start under the indent" <| \{} ->
+                PP.block
+                    [ PP.text "ab"
+                    , PP.verticalBlock
+                        [ PP.text "cd"
+                        , PP.text "ef"
+                        ]
+                    ]
+                    |> PP.indent
+                    |> PP.toString
+                    |> Expect.equal "    abcd\n    ef"
             , test "the newline separator can be overriden" <| \{} ->
                 PP.verticalBlock
                     [ PP.text "First part"
@@ -227,6 +248,13 @@ tests =
                     |> PP.toStringWithOptions
                         { PP.defaultOptions | maxColumns = 11 }
                     |> Expect.equal "    My\n    fancy"
+            , test "a split text continues under the indent" <| \{} ->
+                PP.text "abcdefghijklmnopqrstuvwxyz"
+                    |> PP.indent
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 10 }
+                    |> Expect.equal
+                        "    abcdef\n    ghijkl\n    mnopqr\n    stuvwx\n    yz"
             , test "indents can be nested" <| \{} ->
                 PP.verticalBlock
                     [ PP.text "First part"

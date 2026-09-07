@@ -231,6 +231,74 @@ main =
   you can acquire permissions (`FileSystem`, terminal, …) before any command runs.
 - **`runRootWithContext`** — `runRoot` plus the up-front permission acquisition.
 
+## Output width
+
+Help and error output is wrapped to the width of the terminal it is going to.
+There is nothing to configure: `Argparse.Program` already acquires the terminal
+to decide about color, and takes the width from the same place. When there is
+no terminal to ask — output redirected into a pipe or a file — it falls back to
+80 columns. (A terminal reporting fewer than 20 columns is not believed, and
+gets the fallback too.)
+
+`examples/one-level`'s help in a 40-column terminal:
+
+```
+A tiny todo CLI.
+
+The most common commands are:
+
+    todo add
+        Add a task to the list.
+
+    todo list
+        Show every task.
+
+There are a bunch of other commands as
+well though. Here is a full list:
+
+    todo add
+    todo list
+
+Adding the --help flag gives you more
+details about a specific command.
+```
+
+Widen the terminal and the same paragraphs re-flow to fill it.
+
+If you render `Document`s yourself, `PP.toString` does *not* wrap — its
+`maxColumns` is `Math.maxSafeInteger`. Ask for a width explicitly:
+
+```gren
+PP.words "a description long enough to wrap"
+    |> PP.toStringWithOptions { PP.defaultOptions | maxColumns = 20 }
+```
+
+```
+a description long
+enough to wrap
+```
+
+Wrapped lines are rows in their own right, so they keep the indent of the line
+they came from, and a `block` part is measured against the columns its
+neighbors already took rather than against the full width:
+
+```gren
+PP.block
+    [ PP.text "--flag "
+    , PP.words "a description long enough to wrap"
+    ]
+    |> PP.indent
+    |> PP.toStringWithOptions { PP.defaultOptions | maxColumns = 30 }
+```
+
+```
+    --flag a description long
+    enough to wrap
+```
+
+`PP.words` breaks between words; `PP.text` has no word boundaries to break at
+and is cut wherever the budget runs out, so long prose belongs in `words`.
+
 ## Examples
 
 Each example in `examples/` is a self-contained app with a `run.sh`:

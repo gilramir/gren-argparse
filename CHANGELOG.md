@@ -11,6 +11,9 @@
   at column 0. Only a part's first line is squeezed this way; once it wraps,
   the lines after the break begin rows of their own and get the full width.
   ANSI color escapes count as zero columns.
+- Open a wrapped line with the indent it belongs under. A line after a break
+  starts a row of its own, but `block` parts after the first and split `text`
+  chunks were left at column 0.
 - Fix an off-by-one in `Argparse.PrettyPrinter`'s word wrapping: the space
   joining two words wasn't counted, so a `words` line could come out one
   column wider than `maxColumns`.
