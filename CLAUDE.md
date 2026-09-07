@@ -168,7 +168,17 @@ via `maxColumnsFor` on the `Terminal.Configuration` it already acquires for the
 color decision, and falls back to 80 when `Terminal.initialize` gives `Nothing`
 (stdout or stdin isn't a TTY). Widths under 20 are ignored: a terminal
 reporting 0 columns would put `splitByLength` — the hard splitter behind
-`text` — into an endless loop. All help and error output is
+`text` — into an endless loop.
+
+`toStringHelper` carries a `Layout` record rather than positional arguments,
+and its `startColumn` field is how much of the current row earlier documents
+already took: 0 in a vertical context, the width of the parts to the left
+inside a `block`. It squeezes only a document's *first* line — after a break
+the lines start rows of their own and get the full width — and ANSI escapes
+count as zero columns when measuring it. Without that, a `block` part would
+wrap as though it began at column 0 and break in the wrong place.
+
+All help and error output is
 built from these combinators — `text`, `words` (wraps on word boundaries),
 `block` (horizontal), `verticalBlock`, `indent`, `color`/`intenseColor`
 (ANSI). The error/help renderers in `Argparse.Parser`

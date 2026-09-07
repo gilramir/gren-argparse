@@ -142,6 +142,45 @@ tests =
                             Second part
                             Third part
                         """
+            , test "a block part wraps against the room its neighbors left" <| \{}
+                ->
+                PP.block
+                    [ PP.text "12345"
+                    , PP.words "aaa bbb ccc"
+                    ]
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 10 }
+                    |> Expect.equal "12345aaa\nbbb ccc"
+            , test "a block part that is split gets the full width after the break"
+                <| \{} ->
+                PP.block
+                    [ PP.text "123"
+                    , PP.text "abcdefghijklmno"
+                    ]
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 10 }
+                    |> Expect.equal "123abcdefg\nhijklmno"
+            , test "ansi escapes take up no columns of a block" <| \{} ->
+                PP.block
+                    [ PP.color PP.Cyan <| PP.text "12345"
+                    , PP.words "aaa bbb ccc"
+                    ]
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 10 }
+                    |> Expect.equal
+                        "\u{001b}[36m12345\u{001b}[39maaa\nbbb ccc"
+            , test "vertical block parts after the first start a fresh row" <| \{}
+                ->
+                PP.block
+                    [ PP.text "12345"
+                    , PP.verticalBlock
+                        [ PP.words "aaa bbb"
+                        , PP.words "aaa bbb"
+                        ]
+                    ]
+                    |> PP.toStringWithOptions
+                        { PP.defaultOptions | maxColumns = 10 }
+                    |> Expect.equal "12345aaa\nbbb\naaa bbb"
             , test "the newline separator can be overriden" <| \{} ->
                 PP.verticalBlock
                     [ PP.text "First part"

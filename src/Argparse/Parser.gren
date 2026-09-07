@@ -261,8 +261,9 @@ appHelpText appDef =
                 , PP.block
                     [ PP.text "Adding the "
                     , PP.color PP.Cyan <| PP.text "--help"
-                    , PP.text
-                        " flag gives you more details about a specific command."
+                    , PP.text " "
+                    , PP.words
+                        "flag gives you more details about a specific command."
                     ]
                 ]
 
@@ -357,8 +358,9 @@ prefixHelpText appName prefixName (GroupParser { knownCommands }) =
                 , PP.block
                     [ PP.text "Adding the "
                     , PP.color PP.Cyan <| PP.text "--help"
-                    , PP.text
-                        " flag gives you more details about a specific command."
+                    , PP.text " "
+                    , PP.words
+                        "flag gives you more details about a specific command."
                     ]
                 ]
     in

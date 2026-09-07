@@ -241,19 +241,36 @@ defaultOptions =
 -}
 toStringWithOptions : ToStringOptions -> Document -> String
 toStringWithOptions { maxColumns, indentationSize, newlineSeparator } doc =
-    toStringHelper ""
-        (\currentIndent -> String.repeat indentationSize " " ++ currentIndent)
-        maxColumns newlineSeparator doc
+    toStringHelper
+        { indentPrefix = ""
+        , nextIndent =
+            \currentIndent -> String.repeat indentationSize " " ++ currentIndent
+        , maxColumns = maxColumns
+        , newlineSeparator = newlineSeparator
+        , startColumn = 0
+        }
+        doc
 
 
-toStringHelper :
-    String
-    -> (String -> String)
-    -> Int
-    -> String
-    -> Document
-    -> String
-toStringHelper indentPrefix nextIndent maxColumns newlineSeparator doc =
+{-| Everything the renderer needs in order to lay out one Document.
+
+`startColumn` is how much of the current row is already spoken for by the
+documents rendered before this one: 0 in a vertical context, and the width of
+the parts to its left inside a [block](#block). It squeezes only the *first*
+line of a document — once a document wraps, the lines after the break begin
+rows of their own and get the full width.
+-}
+type alias Layout =
+    { indentPrefix : String
+    , nextIndent : String -> String
+    , maxColumns : Int
+    , newlineSeparator : String
+    , startColumn : Int
+    }
+
+
+toStringHelper : Layout -> Document -> String
+toStringHelper layout doc =
     when doc is
         Empty ->
             ""
@@ -261,12 +278,19 @@ toStringHelper indentPrefix nextIndent maxColumns newlineSeparator doc =
         Text str ->
             let
                 indentedText =
-                    indentPrefix ++ str
+                    layout.indentPrefix ++ str
             in
-            if String.count indentedText > maxColumns then
+            if
+                String.count indentedText
+                    + layout.startColumn
+                    > layout.maxColumns
+            then
                 indentedText
-                    |> splitByLength maxColumns
-                    |> String.join newlineSeparator
+                    |> splitByLength
+                        { first = max 1 (layout.maxColumns - layout.startColumn)
+                        , rest = max 1 layout.maxColumns
+                        }
+                    |> String.join layout.newlineSeparator
 
             else
                 indentedText
@@ -274,27 +298,36 @@ toStringHelper indentPrefix nextIndent maxColumns newlineSeparator doc =
         Words parts ->
             let
                 maxColumnsAfterIndent =
-                    maxColumns - String.count indentPrefix
+                    layout.maxColumns - String.count layout.indentPrefix
 
                 wordSplitter =
-                    Array.foldl (addToWordSplitter maxColumnsAfterIndent)
-                        emptyWordSplitter parts
+                    Array.foldl
+                        (addToWordSplitter
+                            { first = maxColumnsAfterIndent - layout.startColumn
+                            , rest = maxColumnsAfterIndent
+                            }
+                        )
+                        emptyWordSplitter
+                        parts
             in
             Array.pushLast wordSplitter.currentLine wordSplitter.lines
-                |> Array.map (\line -> indentPrefix ++ String.join " " line)
-                |> String.join newlineSeparator
+                |> Array.map
+                    (\line -> layout.indentPrefix ++ String.join " " line)
+                |> String.join layout.newlineSeparator
 
         Colorized { color = clr, intense, document } ->
             String.join "" <|
                 [ ansiColorEscapePrefix ++ ansiColorCode clr intense ++ "m"
-                , toStringHelper indentPrefix nextIndent maxColumns
-                    newlineSeparator document
+                , toStringHelper layout document
                 , ansiColorEscapePrefix ++ "39m"
                 ]
 
         Indented document ->
-            toStringHelper (nextIndent indentPrefix) nextIndent maxColumns
-                newlineSeparator document
+            toStringHelper
+                { layout
+                    | indentPrefix = layout.nextIndent layout.indentPrefix
+                }
+                document
 
         Block docs ->
             when Array.popFirst docs is
@@ -302,25 +335,118 @@ toStringHelper indentPrefix nextIndent maxColumns newlineSeparator doc =
                     ""
 
                 Just { first, rest } ->
-                    Array.pushFirst
-                        (toStringHelper indentPrefix nextIndent maxColumns
-                            newlineSeparator first)
-                        (Array.map
-                            (toStringHelper "" identity maxColumns
-                                newlineSeparator) rest)
-                        |> String.join ""
+                    let
+                        firstPart =
+                            toStringHelper layout first
+                    in
+                    Array.foldl (addBlockPart layout)
+                        { rendered = firstPart
+                        , column =
+                            columnAfter layout.newlineSeparator
+                                layout.startColumn firstPart
+                        }
+                        rest
+                        |> .rendered
 
         VerticalBlock docs ->
-            docs
-                |> Array.map
-                    (toStringHelper indentPrefix nextIndent maxColumns
-                        newlineSeparator)
-                |> String.join newlineSeparator
+            when Array.popFirst docs is
+                Nothing ->
+                    ""
+
+                Just { first, rest } ->
+                    Array.pushFirst
+                        (toStringHelper layout first)
+                        (Array.map
+                            (toStringHelper { layout | startColumn = 0 })
+                            rest
+                        )
+                        |> String.join layout.newlineSeparator
 
 
-splitByLength : Int -> String -> Array String
-splitByLength size str =
-    splitByLengthHelper size str []
+{-| Render one of the parts that follow the first in a horizontal
+[block](#block), and report where the row stands afterwards. The part is told
+how many columns its neighbours to the left have already taken, because it does
+*not* start at column 0 — without that it would wrap against the full width and
+break in the wrong place.
+-}
+addBlockPart :
+    Layout
+    -> Document
+    -> { rendered : String, column : Int }
+    -> { rendered : String, column : Int }
+addBlockPart layout doc { rendered, column } =
+    let
+        part =
+            toStringHelper
+                { layout
+                    | indentPrefix = ""
+                    , nextIndent = identity
+                    , startColumn = column
+                }
+                doc
+    in
+    { rendered = rendered ++ part
+    , column = columnAfter layout.newlineSeparator column part
+    }
+
+
+{-| The column the row stands at after `rendered` has been written, given that
+it started at `startColumn`. Text that wrapped has left us on a fresh row, so
+only its last line counts.
+-}
+columnAfter : String -> Int -> String -> Int
+columnAfter newlineSeparator startColumn rendered =
+    let
+        lines =
+            String.split newlineSeparator rendered
+    in
+    when Array.last lines is
+        Nothing ->
+            startColumn
+
+        Just lastLine ->
+            if Array.length lines <= 1 then
+                startColumn + visibleWidth lastLine
+
+            else
+                visibleWidth lastLine
+
+
+{-| The width of a rendered line as the terminal sees it. The ANSI escape
+sequences that [color](#color) wraps text in take up no columns of their own.
+-}
+visibleWidth : String -> Int
+visibleWidth line =
+    String.foldl
+        (\char acc ->
+            if acc.inEscape then
+                { acc | inEscape = char /= 'm' }
+
+            else if char == ansiEscape then
+                { acc | inEscape = True }
+
+            else
+                { acc | width = acc.width + 1 }
+        )
+        { inEscape = False, width = 0 }
+        line
+        |> .width
+
+
+ansiEscape : Char
+ansiEscape =
+    '\u{001b}'
+
+
+{-| Hard-split a string into chunks: the first line gets `first` characters,
+because part of its row may already be taken, and every line after it gets
+`rest`.
+-}
+splitByLength : { first : Int, rest : Int } -> String -> Array String
+splitByLength { first, rest } str =
+    splitByLengthHelper rest
+        (String.dropFirst first str)
+        [ String.takeFirst first str ]
 
 
 splitByLengthHelper : Int -> String -> Array String -> Array String
@@ -352,8 +478,12 @@ emptyWordSplitter =
     }
 
 
-addToWordSplitter : Int -> String -> WordSplitter -> WordSplitter
-addToWordSplitter maxWidth str { currentLine, lines } =
+addToWordSplitter :
+    { first : Int, rest : Int }
+    -> String
+    -> WordSplitter
+    -> WordSplitter
+addToWordSplitter widths str { currentLine, lines } =
     if currentLine == [] then
         { currentLine = [ str ]
         , lines = lines
@@ -361,12 +491,19 @@ addToWordSplitter maxWidth str { currentLine, lines } =
 
     else
         let
+            maxWidth =
+                if lines == [] then
+                    widths.first
+
+                else
+                    widths.rest
+
             currentWidth =
                 String.join " " currentLine
                     |> String.count
         in
         if String.count str + 1 + currentWidth > maxWidth then
-            addToWordSplitter maxWidth str
+            addToWordSplitter widths str
                 { currentLine = []
                 , lines = Array.pushLast currentLine lines
                 }
