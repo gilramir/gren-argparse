@@ -1,31 +1,51 @@
 # Changelog
 
-## 2.0.0
+## [2.0.1] - 2026-09-07
 
-- Wrap help and error output to the terminal's width, falling back to 80
-  columns when there's no terminal attached (output redirected to a pipe or a
-  file). A reported width narrower than 20 columns is ignored in favor of the
-  fallback.
-- Wrap the parts of a horizontal `block` against the columns their neighbors to
-  the left already took, instead of against the full width as if each started
-  at column 0. Only a part's first line is squeezed this way; once it wraps,
-  the lines after the break begin rows of their own and get the full width.
-  ANSI color escapes count as zero columns.
-- Open a wrapped line with the indent it belongs under. A line after a break
-  starts a row of its own, but `block` parts after the first and split `text`
-  chunks were left at column 0.
-- Fix an off-by-one in `Argparse.PrettyPrinter`'s word wrapping: the space
-  joining two words wasn't counted, so a `words` line could come out one
-  column wider than `maxColumns`.
-- Add `requiredFlag`: a value flag that must be provided. It fills its
-  constructor argument directly (`value`, not `Maybe value`) and fails the parse
-  with the new `FlagParserMissingRequiredFlag` error if absent. Required flags
-  are annotated `(required)` in `--help`.
+### Changed
 
-## 1.0.1
+- Wrap help and error output to the width of the terminal, falling back to 80
+  columns when there is no terminal to ask
 
-- Don't colorize the help output if stdout isn't connected to a TTY
+### Added
 
-## 1.0.0
+- Document how wrapping works, with worked examples, in the
+  `Argparse.PrettyPrinter` module documentation and the README
 
-- First release
+### Fixed
+
+- Wrap a `block` part against the columns its neighbors to the left already
+  took, instead of against the full width as if it started at column 0
+- Open a wrapped line with the indent it belongs under, which `block` parts
+  after the first and split `text` were missing
+- Count the space between two words when wrapping, which could leave a `words`
+  line one column wider than `maxColumns`
+
+## [2.0.0] - 2026-07-17
+
+### Changed
+
+- **Breaking:** add `FlagParserMissingRequiredFlag` to `FlagParserError`, which
+  exhaustive `when` expressions over that type must now handle
+
+### Added
+
+- Add `requiredFlag`, a value flag that must be provided: it fills its
+  constructor argument with `value` rather than `Maybe value`, fails the parse
+  when absent, and is annotated `(required)` in `--help`
+
+## [1.0.1] - 2026-07-01
+
+### Changed
+
+- Strip ANSI color from help and error output when stdout is not a terminal or
+  `NO_COLOR` is set
+
+## [1.0.0] - 2026-06-25
+
+_First release._
+
+[2.0.1]: https://github.com/gilramir/gren-argparse/releases/tag/2.0.1
+[2.0.0]: https://github.com/gilramir/gren-argparse/releases/tag/2.0.0
+[1.0.1]: https://github.com/gilramir/gren-argparse/releases/tag/1.0.1
+[1.0.0]: https://github.com/gilramir/gren-argparse/releases/tag/1.0.0
