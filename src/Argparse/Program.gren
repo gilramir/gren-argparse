@@ -7,8 +7,8 @@ module Argparse.Program exposing
     )
 
 {-| A convenience wrapper that turns a [Argparse.Parser.App](Argparse.Parser#App) into a
-ready-to-run Node program, handling the boilerplate most command-line tools
-want:
+ready-to-run Node program, a `main : Task Never {}`, handling the boilerplate most
+command-line tools want:
 
 * parse errors (unknown command, bad flags, bad arguments) are printed to
   stderr and the program exits with code `1`
@@ -35,7 +35,7 @@ whether to print a message and which code to use.
 
 This is opinionated on purpose. Programs that need a full model/update loop
 should skip this module entirely: call
-[Argparse.Parser.run](Argparse.Parser#run) inside your own `Node.defineSimpleProgram`,
+[Argparse.Parser.run](Argparse.Parser#run) inside your own `main`,
 match on each [CommandParseResult](Argparse.Parser#CommandParseResult) constructor by hand,
 and call `Node.setExitCode` yourself wherever you need it. See `examples/manual/`
 for a complete working example that exits `2` on usage errors.
@@ -50,10 +50,9 @@ before the command handler while keeping all of the boilerplate above.
 
 import Argparse.Parser
 import Argparse.PrettyPrinter as PP
+import Console
 import Dict
-import Init
 import Node
-import Stream.Log
 import Task exposing ( Task )
 import Terminal
 
@@ -78,7 +77,7 @@ message to stderr.
                     |> Task.andThen
                         (\problems ->
                             if Array.length problems == 0 then
-                                Stream.Log.line env.stdout "All good."
+                                Console.write "All good.\n"
 
                             else
                                 reportProblems env.stderr problems
@@ -101,7 +100,7 @@ not just tidiness: a terminal reporting 0 columns would send the hard splitter
 behind `Argparse.PrettyPrinter.text` into an endless loop, since a zero-width
 chunk never consumes any of the string.
 -}
-maxColumnsFor : Maybe Terminal.Configuration -> Int
+maxColumnsFor : Maybe Terminal.Description -> Int
 maxColumnsFor terminalConfig =
     when terminalConfig is
         Nothing ->
@@ -139,36 +138,58 @@ renderDoc { useColor, maxColumns } doc =
         )
 
 
-applyFailure : Node.Environment -> Failure -> Task x {}
-applyFailure env failure =
+applyFailure : Failure -> Task x {}
+applyFailure failure =
     when failure is
         ExitFailure ->
             Node.setExitCode 1
 
         ExitMessage msg ->
-            Stream.Log.line env.stderr msg
+            Console.writeErr (msg ++ "\n")
                 |> Task.andThen (\_ -> Node.setExitCode 1)
 
         ExitValue value ->
             Node.setExitCode value
 
         ExitMessageValue { message, value } ->
-            Stream.Log.line env.stderr message
+            Console.writeErr (message ++ "\n")
                 |> Task.andThen (\_ -> Node.setExitCode value)
+
+
+{-| How to render help and errors for the terminal the program runs in: colour
+only on an interactive terminal and when `NO_COLOR` is not set
+(https://no-color.org), and wrapped to its width. `Terminal.describe` answers
+without a permission, which a package may not mint.
+-}
+renderOptions : Task x { useColor : Bool, maxColumns : Int }
+renderOptions =
+    Task.map2
+        (\terminal envVars ->
+            { useColor =
+                terminal
+                    /= Nothing
+                    && not (Dict.member "NO_COLOR" envVars)
+            , maxColumns = maxColumnsFor terminal
+            }
+        )
+        Terminal.describe
+        Node.getEnvironmentVariables
 
 
 {-| Build a `Node` program from a parser and a command handler.
 
-    main : Node.SimpleProgram a
+    main : Task Never {}
     main =
-        Argparse.Program.run
+        Node.getEnvironment
+            |> Task.andThen (\env -> Argparse.Program.run env
             { parser = MyArgparse.parser
             , onCommand =
                 \env command ->
                     when command is
                         MyArgparse.Greet { name } ->
-                            Stream.Log.line env.stdout ("Hello, " ++ name)
+                            Console.write ("Hello, " ++ name ++ "\n")
             }
+            )
 
 `onCommand` receives the [Node.Environment](Node#Environment) (stdout, stderr,
 args, …) and your parsed command, and returns a `Task Failure {}`. Succeed with
@@ -177,15 +198,16 @@ choose a non-zero exit and whether to print a message — the same treatment a
 parse error gets.
 -}
 run :
-    { parser : Argparse.Parser.App cmd
+    Node.Environment
+    -> { parser : Argparse.Parser.App cmd
     , onCommand : Node.Environment -> cmd -> Task Failure {}
     }
-    -> Node.SimpleProgram a
-run { parser, onCommand } =
-    runWithContext
+    -> Task Never {}
+run env { parser, onCommand } =
+    runWithContext env
         { parser = parser
-        , init = \_env toProgram -> toProgram {}
-        , onCommand = \env _context cmd -> onCommand env cmd
+        , init = \_env -> Task.succeed {}
+        , onCommand = \environment _context cmd -> onCommand environment cmd
         }
 
 
@@ -195,84 +217,79 @@ permissions before any command runs. Use this when your command handler needs a
 so on — these can only be obtained during a program's initialization phase,
 which `run` doesn't expose.
 
-`init` is given the [Node.Environment](Node#Environment) and a continuation
-(`toProgram`). Acquire whatever you need with `Init.await`, then call
-`toProgram` with a *context* value of your choosing; that same value is later
-handed to every `onCommand` invocation.
+`init` is given the [Node.Environment](Node#Environment) and answers a *context*
+value of your choosing; that same value is later handed to every `onCommand`
+invocation. Acquire permissions there: the function is written in your
+application, which is where a permission may be minted.
 
     import FileSystem
-    import Init
 
     type alias Context =
         { fs : FileSystem.Permission }
 
-    main : Node.SimpleProgram a
+    main : Task Never {}
     main =
-        Argparse.Program.runWithContext
+        Node.getEnvironment
+            |> Task.andThen (\env -> Argparse.Program.runWithContext env
             { parser = MyArgparse.parser
             , init =
-                \_env toProgram ->
-                    Init.await FileSystem.initialize <| \fsPermission ->
-                        toProgram { fs = fsPermission }
+                \_env ->
+                    FileSystem.initialize
+                        |> Task.map (\fsPermission -> { fs = fsPermission })
             , onCommand =
                 \env context command ->
                     when command is
                         MyArgparse.Build { path } ->
                             FileSystem.readFile context.fs path
-                                |> Task.mapError FileSystem.errorToString
-                                |> Task.andThen (\contents -> Stream.Log.line env.stdout contents)
-                                |> Task.map (\_ -> Argparse.Program.Succeeded)
+                                |> Task.mapError (\e -> Argparse.Program.ExitMessage (FileSystem.errorToString e))
+                                |> Task.map (\_ -> {})
             }
+            )
 
 Parse errors, `--help`/`--version`, and the [Failure](#Failure)→exit-code
 mapping are handled exactly as in [run](#run). The `context` is acquired up
 front.
 -}
 runWithContext :
-    { parser : Argparse.Parser.App cmd
-    , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task
-        (Cmd a)
+    Node.Environment
+    -> { parser : Argparse.Parser.App cmd
+    , init : Node.Environment -> Task Never context
     , onCommand : Node.Environment -> context -> cmd -> Task Failure {}
     }
-    -> Node.SimpleProgram a
-runWithContext { parser, init, onCommand } =
-    Node.defineSimpleProgram <| \env ->
-        init env <| \context ->
-        Init.await Terminal.initialize <| \terminalConfig ->
-        Init.awaitTask Node.getEnvironmentVariables <| \envVars ->
-            let
-                renderOptions =
-                    { useColor =
-                        terminalConfig
-                            /= Nothing
-                            && not (Dict.member "NO_COLOR" envVars)
-                    , maxColumns = maxColumnsFor terminalConfig
-                    }
+    -> Task Never {}
+runWithContext env { parser, init, onCommand } =
+    init env
+        |> Task.andThen
+            (\context ->
+                renderOptions
+                    |> Task.andThen
+                        (\options ->
+                            let
+                                failWith doc =
+                                    Console.writeErr (renderDoc options doc ++ "\n")
+                                        |> Task.andThen (\_ -> Node.setExitCode 1)
+                            in
+                            when Argparse.Parser.run (Array.dropFirst 2 env.args) parser is
+                                Argparse.Parser.UnknownCommand name ->
+                                    failWith
+                                        (PP.text
+                                            ("I don't recognize this command: "
+                                                ++ name))
 
-                failWith doc =
-                    Stream.Log.line env.stderr (renderDoc renderOptions doc)
-                        |> Task.andThen (\_ -> Node.setExitCode 1)
-            in
-            Node.endSimpleProgram <|
-                when Argparse.Parser.run (Array.dropFirst 2 env.args) parser is
-                    Argparse.Parser.UnknownCommand name ->
-                        failWith
-                            (PP.text
-                                ("I don't recognize this command: "
-                                    ++ name))
+                                Argparse.Parser.BadFlags err ->
+                                    failWith (Argparse.Parser.flagErrorPrettified err)
 
-                    Argparse.Parser.BadFlags err ->
-                        failWith (Argparse.Parser.flagErrorPrettified err)
+                                Argparse.Parser.BadArguments err ->
+                                    failWith (Argparse.Parser.argumentErrorPrettified err)
 
-                    Argparse.Parser.BadArguments err ->
-                        failWith (Argparse.Parser.argumentErrorPrettified err)
+                                Argparse.Parser.HelpText doc ->
+                                    Console.write (renderDoc options doc ++ "\n")
 
-                    Argparse.Parser.HelpText doc ->
-                        Stream.Log.line env.stdout (renderDoc renderOptions doc)
-
-                    Argparse.Parser.Success cmd ->
-                        onCommand env context cmd
-                            |> Task.onError (applyFailure env)
+                                Argparse.Parser.Success cmd ->
+                                    onCommand env context cmd
+                                        |> Task.onError applyFailure
+                        )
+            )
 
 
 {-| Build a `Node` program from a *single* command, with no sub-command word —
@@ -281,16 +298,18 @@ is the [Argparse.Parser.runCommand](Argparse.Parser#runCommand) counterpart to
 [run](#run), and handles the same boilerplate (parse errors → stderr + exit 1,
 `--help`/`--version` → stdout, success → your handler).
 
-    main : Node.SimpleProgram a
+    main : Task Never {}
     main =
-        Argparse.Program.runRoot
+        Node.getEnvironment
+            |> Task.andThen (\env -> Argparse.Program.runRoot env
             { name = "greet"
             , version = "1.0.0"
             , command = MyArgparse.greetCommand
             , onCommand =
                 \env (MyArgparse.Greet { name, loud }) ->
-                    Stream.Log.line env.stdout (greeting name loud)
+                    Console.write (greeting name loud ++ "\n")
             }
+            )
 
 `name` and `version` drive the `--help` usage line and `--version` output. The
 command's own `word` is ignored (the help line reads `name <args>`), so you can
@@ -302,19 +321,20 @@ If the command needs subsystem permissions, use
 context, the same way [run](#run) relates to [runWithContext](#runWithContext).
 -}
 runRoot :
-    { name : String
+    Node.Environment
+    -> { name : String
     , version : String
     , command : Argparse.Parser.Command args flags cmd
     , onCommand : Node.Environment -> cmd -> Task Failure {}
     }
-    -> Node.SimpleProgram a
-runRoot { name, version, command, onCommand } =
-    runRootWithContext
+    -> Task Never {}
+runRoot env { name, version, command, onCommand } =
+    runRootWithContext env
         { name = name
         , version = version
         , command = command
-        , init = \_env toProgram -> toProgram {}
-        , onCommand = \env _context cmd -> onCommand env cmd
+        , init = \_env -> Task.succeed {}
+        , onCommand = \environment _context cmd -> onCommand environment cmd
         }
 
 
@@ -324,33 +344,33 @@ acquire permissions before the command runs — the rootless counterpart to
 (`mytool --loud World`) whose handler still needs a `FileSystem.Permission`, a
 `Terminal` configuration, child-process access, and so on.
 
-`init` is given the [Node.Environment](Node#Environment) and a continuation
-(`toProgram`). Acquire whatever you need with `Init.await`, then call
-`toProgram` with a *context* value of your choosing; that same value is later
-handed to `onCommand`.
+`init` is given the [Node.Environment](Node#Environment) and answers a *context*
+value of your choosing, which is later handed to `onCommand`. Acquire
+permissions there, in your application.
 
     import FileSystem
-    import Init
 
     type alias Context =
         { fs : FileSystem.Permission }
 
-    main : Node.SimpleProgram a
+    main : Task Never {}
     main =
-        Argparse.Program.runRootWithContext
+        Node.getEnvironment
+            |> Task.andThen (\env -> Argparse.Program.runRootWithContext env
             { name = "wc"
             , version = "1.0.0"
             , command = MyArgparse.countCommand
             , init =
-                \_env toProgram ->
-                    Init.await FileSystem.initialize <| \fsPermission ->
-                        toProgram { fs = fsPermission }
+                \_env ->
+                    FileSystem.initialize
+                        |> Task.map (\fsPermission -> { fs = fsPermission })
             , onCommand =
                 \env context (MyArgparse.Count { path }) ->
                     FileSystem.readFile context.fs path
                         |> Task.mapError (\e -> ExitMessage (FileSystem.errorToString e))
-                        |> Task.andThen (\contents -> Stream.Log.line env.stdout contents)
+                        |> Task.map (\_ -> {})
             }
+            )
 
 Parse errors, `--help`/`--version`, and the [Failure](#Failure)→exit-code
 mapping are handled exactly as in [runRoot](#runRoot). The `context` is acquired
@@ -358,62 +378,52 @@ up front, so it is available even on the help/error paths; that's harmless, sinc
 acquiring a permission performs no I/O.
 -}
 runRootWithContext :
-    { name : String
+    Node.Environment
+    -> { name : String
     , version : String
     , command : Argparse.Parser.Command args flags cmd
-    , init : Node.Environment -> (context -> Init.Task (Cmd a)) -> Init.Task
-        (Cmd a)
+    , init : Node.Environment -> Task Never context
     , onCommand : Node.Environment -> context -> cmd -> Task Failure {}
     }
-    -> Node.SimpleProgram a
-runRootWithContext { name, version, command, init, onCommand } =
-    Node.defineSimpleProgram <| \env ->
-        init env <| \context ->
-        Init.await Terminal.initialize <| \terminalConfig ->
-        Init.awaitTask Node.getEnvironmentVariables <| \envVars ->
-            let
-                args =
-                    Array.dropFirst 2 env.args
+    -> Task Never {}
+runRootWithContext env { name, version, command, init, onCommand } =
+    init env
+        |> Task.andThen
+            (\context ->
+                renderOptions
+                    |> Task.andThen
+                        (\options ->
+                            let
+                                args =
+                                    Array.dropFirst 2 env.args
 
-                renderOptions =
-                    { useColor =
-                        terminalConfig
-                            /= Nothing
-                            && not (Dict.member "NO_COLOR" envVars)
-                    , maxColumns = maxColumnsFor terminalConfig
-                    }
+                                failWith doc =
+                                    Console.writeErr (renderDoc options doc ++ "\n")
+                                        |> Task.andThen (\_ -> Node.setExitCode 1)
+                            in
+                            when Array.first args is
+                                Just "--version" ->
+                                    Console.write (version ++ "\n")
 
-                failWith doc =
-                    Stream.Log.line env.stderr (renderDoc renderOptions doc)
-                        |> Task.andThen (\_ -> Node.setExitCode 1)
-            in
-            Node.endSimpleProgram <|
-                when Array.first args is
-                    Just "--version" ->
-                        Stream.Log.line env.stdout version
+                                _ ->
+                                    when Argparse.Parser.runCommand name args { command | word = "" } is
+                                        Argparse.Parser.UnknownCommand cmdName ->
+                                            failWith
+                                                (PP.text
+                                                    ("I don't recognize this command: "
+                                                        ++ cmdName))
 
-                    _ ->
-                        when
-                        Argparse.Parser.runCommand name args
-                            { command | word = "" } is
-                            Argparse.Parser.UnknownCommand cmdName ->
-                                failWith
-                                    (PP.text
-                                        ("I don't recognize this command: "
-                                            ++ cmdName))
+                                        Argparse.Parser.BadFlags err ->
+                                            failWith (Argparse.Parser.flagErrorPrettified err)
 
-                            Argparse.Parser.BadFlags err ->
-                                failWith
-                                    (Argparse.Parser.flagErrorPrettified err)
+                                        Argparse.Parser.BadArguments err ->
+                                            failWith (Argparse.Parser.argumentErrorPrettified err)
 
-                            Argparse.Parser.BadArguments err ->
-                                failWith
-                                    (Argparse.Parser.argumentErrorPrettified
-                                        err)
+                                        Argparse.Parser.HelpText doc ->
+                                            Console.write (renderDoc options doc ++ "\n")
 
-                            Argparse.Parser.HelpText doc ->
-                                Stream.Log.line env.stdout (renderDoc renderOptions doc)
-
-                            Argparse.Parser.Success cmd ->
-                                onCommand env context cmd
-                                    |> Task.onError (applyFailure env)
+                                        Argparse.Parser.Success cmd ->
+                                            onCommand env context cmd
+                                                |> Task.onError applyFailure
+                        )
+            )

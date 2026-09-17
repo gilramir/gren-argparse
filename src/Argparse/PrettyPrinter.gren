@@ -26,7 +26,7 @@ it to the terminal.
 ## Wrapping
 
 [toString](#toString) does not wrap: `defaultOptions.maxColumns` is
-`Math.maxSafeInteger`, so a `Document` comes out however long it is and the
+the largest `Int`, so a `Document` comes out however long it is and the
 terminal makes of it what it will. Give it a column budget with
 [toStringWithOptions](#toStringWithOptions) and the text is broken to fit.
 `Argparse.Program` does this for you — it passes the width of the terminal it
@@ -342,7 +342,7 @@ type alias ToStringOptions =
 
 {-| A default set of options for converting [Document](#Document) into `String`.
 
-`maxColumns` is `Math.maxSafeInteger` here, which is to say these options do
+`maxColumns` is the largest `Int` here, which is to say these options do
 not wrap at all. Pass a real width to
 [toStringWithOptions](#toStringWithOptions) to get wrapping — or let
 `Argparse.Program` do it, which renders with the width of the terminal it is
@@ -350,7 +350,8 @@ talking to and 80 columns when there is no terminal.
 -}
 defaultOptions : ToStringOptions
 defaultOptions =
-    { maxColumns = Math.maxSafeInteger
+    { -- unlimited: the largest `Int`, where stock used 2^53 - 1, which is a `Float` on Geng
+      maxColumns = 2147483647
     , indentationSize = 4
     , newlineSeparator = "\n"
     }
