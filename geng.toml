@@ -1,0 +1,15 @@
+[package]
+name = "github.com/gilramir/gren-argparse"
+version = "2.0.1"
+summary = "Declarative command-line argument parsing for node-platform Gren programs"
+license = "BSD-3-Clause"
+geng = "0.6.0 <= v < 0.7.0"
+
+[platform]
+runtime = "node"
+
+[modules]
+exposed = ["Argparse.Parser", "Argparse.PrettyPrinter", "Argparse.Program"]
+
+[dependencies]
+"github.com/geng-language/node" = "6.1.0 <= v < 7.0.0"
