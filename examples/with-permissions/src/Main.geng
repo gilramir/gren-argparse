@@ -1,0 +1,105 @@
+module Main exposing (main)
+
+{-| Demonstrates `Argparse.Program.runWithContext`: a command handler that needs a
+`FileSystem.Permission`, acquired up front in the initialization phase and
+threaded through as the program's *context*.
+
+The `count` command reads a file and reports its size in bytes. It also shows
+off the ways `Argparse.Program` lets a handler signal failure:
+
+  - a **missing** file fails the task with `Argparse.Program.ExitMessage`, so its
+    error message goes to stderr and the program exits `1`;
+  - an **empty** file is a failed check — the handler prints its own note and
+    then fails with `Argparse.Program.ExitFailure` (exit `1`, no extra output).
+
+A non-empty file returns `{}` (exit `0`).
+
+    ./run.sh count geng.toml        # prints the size, exits 0
+    ./run.sh count /no/such/file    # stderr error, exits 1
+    ./run.sh count /dev/null        # "empty file", exits 1
+    ./run.sh --help
+-}
+
+import Argparse.Parser
+import Argparse.PrettyPrinter as PP
+import Argparse.Program
+import Bytes
+import FileSystem
+import FileSystem.Path as Path exposing (Path)
+import Node
+import Stream.Log
+import Task exposing (Task)
+
+
+type Command
+    = Count { path : Path }
+
+
+type alias Context =
+    { fs : FileSystem.Permission }
+
+
+parser : Argparse.Parser.App Command
+parser =
+    { name = "filetool"
+    , version = "1.0.0"
+    , intro = PP.words "A tool that touches the filesystem."
+    , outro = PP.empty
+    , commands =
+        Argparse.Parser.defineGroup
+            |> Argparse.Parser.withCommand
+                { word = "count"
+                , arguments =
+                    Argparse.Parser.oneArg
+                        { value = Argparse.Parser.pathParser
+                        , help = "The file to measure"
+                        }
+                , flags = Argparse.Parser.noFlags
+                , commonDescription = Just "Report a file's size in bytes."
+                , summary = "The `count` command measures a file:"
+                , example = PP.words "filetool count geng.toml"
+                , builder =
+                    \path _flags ->
+                        Count { path = path }
+                }
+    }
+
+
+main : Task Never {}
+main =
+    Node.getEnvironment
+        |> Task.andThen
+            (\environment ->
+                Argparse.Program.runWithContext environment
+                    { parser = parser
+                    , init =
+                        \_env ->
+                            FileSystem.initialize
+                                |> Task.map (\fsPermission -> { fs = fsPermission })
+                    , onCommand =
+                        \env context command ->
+                            when command is
+                                Count { path } ->
+                                    FileSystem.readFile context.fs path
+                                        -- A read error (e.g. no such file): print to stderr, exit 1.
+                                        |> Task.mapError (\e -> Argparse.Program.ExitMessage (FileSystem.errorToString e))
+                                        |> Task.andThen
+                                            (\contents ->
+                                                if Bytes.length contents == 0 then
+                                                    -- Ran fine, but the answer is "no": a
+                                                    -- failed check. Print our own note and
+                                                    -- exit 1 with no extra diagnostic.
+                                                    Stream.Log.line env.stderr
+                                                        (Path.toPosixString path ++ " is empty")
+                                                        |> Task.andThen (\_ -> Task.fail Argparse.Program.ExitFailure)
+
+                                                else
+                                                    Stream.Log.line env.stdout
+                                                        (Path.toPosixString path
+                                                            ++ ": "
+                                                            ++ String.fromInt (Bytes.length contents)
+                                                            ++ " bytes"
+                                                        )
+                                            )
+                    }
+            )

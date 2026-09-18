@@ -19,7 +19,7 @@ import Argparse.Parser
 import Argparse.PrettyPrinter as PP
 import Argparse.Program
 import Node
-import Task
+import Task exposing (Task)
 
 
 type Command
@@ -29,31 +29,30 @@ type Command
 command : Argparse.Parser.Command {} {} Command
 command =
     { word = ""
-    , arguments =
-        Argparse.Parser.noArgs
-    , flags =
-        Argparse.Parser.noFlags
-    , commonDescription =
-        Nothing
-    , summary =
-        "Always fails with a two-line diagnostic:"
-    , example =
-        PP.words "boom"
+    , arguments = Argparse.Parser.noArgs
+    , flags = Argparse.Parser.noFlags
+    , commonDescription = Nothing
+    , summary = "Always fails with a two-line diagnostic:"
+    , example = PP.words "boom"
     , builder =
         \_args _flags ->
             Boom
     }
 
 
-main : Node.SimpleProgram a
+main : Task Never {}
 main =
-    Argparse.Program.runRoot
-        { name = "boom"
-        , version = "1.0.0"
-        , command = command
-        , onCommand =
-            \_env cmd ->
-                when cmd is
-                    Boom ->
-                        Task.fail (Argparse.Program.ExitMessage "line one\nline two")
-        }
+    Node.getEnvironment
+        |> Task.andThen
+            (\environment ->
+                Argparse.Program.runRoot environment
+                    { name = "boom"
+                    , version = "1.0.0"
+                    , command = command
+                    , onCommand =
+                        \_env cmd ->
+                            when cmd is
+                                Boom ->
+                                    Task.fail (Argparse.Program.ExitMessage "line one\nline two")
+                    }
+            )

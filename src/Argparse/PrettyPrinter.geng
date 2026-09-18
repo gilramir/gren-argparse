@@ -92,6 +92,7 @@ import Math
 
 {-| A `Document` represents formatted text.
 -}
+@derive(Eq, Inspect)
 type Document
     = Empty
     | Text String

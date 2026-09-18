@@ -98,8 +98,12 @@ tests =
                             { expected = 0, actual = 1 })
             , test "Can map arg parser" <| \{} ->
                 let
+                    noStrings : a -> Array String
+                    noStrings _ =
+                        []
+
                     cmd =
-                        cmdBuilder (Parser.mapArgs (\_ -> []) Parser.noArgs)
+                        cmdBuilder (Parser.mapArgs noStrings Parser.noArgs)
                             testFlags
                 in
                 expectParseSuccess cmd [ "make" ] <| \exec ->

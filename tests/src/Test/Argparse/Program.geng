@@ -26,7 +26,7 @@ The only difference is whether a `count` command word precedes the path, so the
 per-example config supplies that. Both examples are built by `run-tests.sh`
 before this suite runs; we invoke each with its own directory as the working
 directory, mirroring how the examples are meant to be used (`./run.sh …`), and
-so each can resolve the non-empty `gren.json` that ships alongside it.
+so each can resolve the non-empty `geng.toml` that ships alongside it.
 -}
 
 import Bytes exposing ( Bytes )
@@ -69,14 +69,14 @@ outcomeTests :
     -> Test
 outcomeTests cpPerm { label, dir, argsFor } =
     describe label
-        [ succeedsTest cpPerm dir (argsFor "gren.json")
+        [ succeedsTest cpPerm dir (argsFor "geng.toml")
         , failsQuietlyTest cpPerm dir (argsFor "/dev/null")
         , errorsTest cpPerm dir (argsFor "/no/such/file")
         ]
 
 
 -- `node app <args...>`, run in the given example's own directory so the example
--- can resolve input files the way its docs do (e.g. `gren.json`, a non-empty
+-- can resolve input files the way its docs do (e.g. `geng.toml`, a non-empty
 -- file that ships with each example).
 runExample :
     ChildProcess.Permission
@@ -97,7 +97,7 @@ bytesToString bytes =
 
 succeedsTest : ChildProcess.Permission -> String -> Array String -> Test
 succeedsTest cpPerm dir args =
-    -- gren.json ships with the example and is non-empty → exit 0, size on stdout.
+    -- geng.toml ships with the example and is non-empty → exit 0, size on stdout.
     await "count of a non-empty file"
         (runExample cpPerm dir args) <| \{ stdout, stderr } ->
         describe "non-empty file succeeds"

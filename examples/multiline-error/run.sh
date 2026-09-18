@@ -2,5 +2,5 @@
 
 set -e
 
-gren make Main --output=app
+geng make Main --output=app
 node app "$@"

@@ -18,7 +18,7 @@ import Argparse.PrettyPrinter as PP
 import Argparse.Program
 import Node
 import Stream.Log
-import Task
+import Task exposing (Task)
 
 
 type Command
@@ -54,8 +54,7 @@ remoteCommands =
     Argparse.Parser.defineGroup
         |> Argparse.Parser.withCommand
             { word = "add"
-            , arguments =
-                Argparse.Parser.oneArg { value = nameParser, help = "Name of the remote" }
+            , arguments = Argparse.Parser.oneArg { value = nameParser, help = "Name of the remote" }
             , flags = Argparse.Parser.noFlags
             , commonDescription = Just "Add a remote."
             , summary = "The `remote add` command registers a remote:"
@@ -64,8 +63,7 @@ remoteCommands =
             }
         |> Argparse.Parser.withCommand
             { word = "remove"
-            , arguments =
-                Argparse.Parser.oneArg { value = nameParser, help = "Name of the remote" }
+            , arguments = Argparse.Parser.oneArg { value = nameParser, help = "Name of the remote" }
             , flags = Argparse.Parser.noFlags
             , commonDescription = Just "Remove a remote."
             , summary = "The `remote remove` command drops a remote:"
@@ -83,34 +81,36 @@ remoteCommands =
             }
 
 
-main : Node.SimpleProgram a
+main : Task Never {}
 main =
-    Argparse.Program.run
-        { parser = parser
-        , onCommand =
-            \env cmd ->
-                (when cmd is
-                    Status ->
-                        Stream.Log.line env.stdout "On branch main, nothing to commit."
+    Node.getEnvironment
+        |> Task.andThen
+            (\environment ->
+                Argparse.Program.run environment
+                    { parser = parser
+                    , onCommand =
+                        \env cmd ->
+                            (when cmd is
+                                Status ->
+                                    Stream.Log.line env.stdout "On branch main, nothing to commit."
 
-                    RemoteAdd { name } ->
-                        Stream.Log.line env.stdout ("Added remote: " ++ name)
+                                RemoteAdd { name } ->
+                                    Stream.Log.line env.stdout ("Added remote: " ++ name)
 
-                    RemoteRemove { name } ->
-                        Stream.Log.line env.stdout ("Removed remote: " ++ name)
+                                RemoteRemove { name } ->
+                                    Stream.Log.line env.stdout ("Removed remote: " ++ name)
 
-                    RemoteList ->
-                        Stream.Log.line env.stdout "(this demo keeps no state, so there are no remotes)"
-                )
-                    |> Task.map (\_ -> {})
-        }
+                                RemoteList ->
+                                    Stream.Log.line env.stdout "(this demo keeps no state, so there are no remotes)"
+                            )
+                                |> Task.map (\_ -> {})
+                    }
+            )
 
 
 nameParser : Argparse.Parser.ValueParser String
 nameParser =
     { label = "name"
     , fn = Just
-    , examples =
-        [ "origin"
-        ]
+    , examples = [ "origin" ]
     }
