@@ -6,7 +6,7 @@ lock-version = 1
 [[package]]
 name = "github.com/blaix/gren-effectful-tests"
 version = "6.0.0"
-path = "../../../../packages/effectful-tests"
+path = "../../../blaix/gren-effectful-tests"
 
 [[package]]
 name = "github.com/geng-language/node"
